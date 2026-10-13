@@ -1,0 +1,76 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: odoo-restore-drill
+  namespace: odoo-system
+  labels: {}
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: odoo
+        component: restore-drill
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: restore
+        image: odoo-backup:15-lab
+        command:
+        - python3
+        - /opt/backup/restore.py
+        env:
+        - name: PGHOST
+          value: postgres-service
+        - name: PGDATABASE
+          value: odoo17_dev
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: odoo-secrets
+              key: POSTGRES_USER
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: odoo-secrets
+              key: POSTGRES_PASSWORD
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: BACKUP_SET
+          value: REPLACE_WITH_BACKUP_DIRECTORY
+        - name: RESTORE_DATABASE
+          value: odoo17_restore_drill
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        volumeMounts:
+        - name: backup
+          mountPath: /backup
+          readOnly: true
+        - name: restore
+          mountPath: /restore
+      volumes:
+      - name: backup
+        persistentVolumeClaim:
+          claimName: odoo-backup-pvc
+      - name: restore
+        persistentVolumeClaim:
+          claimName: odoo-restore-pvc
+      automountServiceAccountToken: false

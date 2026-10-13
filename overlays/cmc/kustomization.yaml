@@ -1,0 +1,175 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: odoo-system
+resources:
+- ../../base
+- cloud-resources.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+- name: cmc-deployment-settings
+  namespace: odoo-system
+  literals:
+  - domain=REPLACE_ODOO_DOMAIN
+
+images:
+- name: odoo-queue
+  newName: docker.io/REPLACE_DOCKERHUB_USERNAME/odoo-queue
+  newTag: REPLACE_IMAGE_TAG
+- name: odoo-backup
+  newName: docker.io/REPLACE_DOCKERHUB_USERNAME/odoo-backup
+  newTag: REPLACE_IMAGE_TAG
+
+patches:
+- target:
+    kind: Namespace
+    name: odoo-system
+  patch: |-
+    - op: replace
+      path: /metadata/labels/environment
+      value: cmc-cloud
+    - op: add
+      path: /metadata/annotations
+      value:
+        argocd.argoproj.io/sync-wave: "-30"
+- target:
+    kind: PersistentVolumeClaim
+    name: postgres-pvc
+  patch: |-
+    - op: add
+      path: /spec/storageClassName
+      value: REPLACE_CMC_BLOCK_STORAGE_CLASS
+- target:
+    kind: PersistentVolumeClaim
+    name: odoo-(filestore|backup|restore)-pvc
+  patch: |-
+    - op: add
+      path: /spec/storageClassName
+      value: REPLACE_CMC_RWX_STORAGE_CLASS
+- target:
+    kind: PersistentVolumeClaim
+  patch: |-
+    - op: add
+      path: /metadata/annotations
+      value:
+        argocd.argoproj.io/sync-wave: "-20"
+- target:
+    kind: ConfigMap
+    name: odoo-config
+  patch: |-
+    - op: add
+      path: /metadata/annotations
+      value:
+        argocd.argoproj.io/sync-wave: "-20"
+- target:
+    kind: StatefulSet
+    name: postgres
+  patch: |-
+    - op: add
+      path: /metadata/annotations
+      value:
+        argocd.argoproj.io/sync-wave: "-20"
+- target:
+    kind: Service
+    name: postgres-service
+  patch: |-
+    - op: add
+      path: /metadata/annotations
+      value:
+        argocd.argoproj.io/sync-wave: "-20"
+- target:
+    kind: Job
+    name: odoo-init-db
+  patch: |-
+    - op: add
+      path: /metadata/annotations
+      value:
+        argocd.argoproj.io/hook: Sync
+        argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+        argocd.argoproj.io/sync-wave: "-10"
+- target:
+    group: apisix.apache.org
+    version: v2
+    kind: ApisixRoute
+    name: odoo-gateway
+  patch: |-
+    - op: add
+      path: /spec/http/0/plugins/-
+      value:
+        name: proxy-rewrite
+        enable: true
+        config:
+          headers:
+            set:
+              X-Forwarded-Host: REPLACE_ODOO_DOMAIN
+              X-Forwarded-Proto: https
+    - op: add
+      path: /spec/http/1/plugins/-
+      value:
+        name: proxy-rewrite
+        enable: true
+        config:
+          headers:
+            set:
+              X-Forwarded-Host: REPLACE_ODOO_DOMAIN
+              X-Forwarded-Proto: https
+    - op: add
+      path: /spec/http/2/plugins/-
+      value:
+        name: proxy-rewrite
+        enable: true
+        config:
+          headers:
+            set:
+              X-Forwarded-Host: REPLACE_ODOO_DOMAIN
+              X-Forwarded-Proto: https
+- target:
+    group: argoproj.io
+    version: v1alpha1
+    kind: Rollout
+    name: odoo-web-rollout
+  patch: |-
+    - op: add
+      path: /spec/template/spec/topologySpreadConstraints
+      value:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: odoo
+            component: web
+- target:
+    kind: CronJob
+    name: odoo-disaster-recovery-backup
+  patch: |-
+    - op: add
+      path: /spec/suspend
+      value: true
+
+replacements:
+- source:
+    kind: ConfigMap
+    name: cmc-deployment-settings
+    fieldPath: data.domain
+  targets:
+  - select:
+      group: apisix.apache.org
+      version: v2
+      kind: ApisixRoute
+      name: odoo-gateway
+    fieldPaths:
+    - spec.http.0.match.hosts.0
+    - spec.http.0.plugins.1.config.headers.set.X-Forwarded-Host
+    - spec.http.1.match.hosts.0
+    - spec.http.1.plugins.1.config.headers.set.X-Forwarded-Host
+    - spec.http.2.match.hosts.0
+    - spec.http.2.plugins.1.config.headers.set.X-Forwarded-Host
+  - select:
+      group: apisix.apache.org
+      version: v2
+      kind: ApisixTls
+      name: odoo-tls
+    fieldPaths:
+    - spec.hosts.0

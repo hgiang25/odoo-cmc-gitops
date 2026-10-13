@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: odoo-cmc-infrastructure
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-30"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: odoo-cmc
+  source:
+    repoURL: https://github.com/hgiang25/odoo-cmc-gitops.git
+    targetRevision: main
+    path: overlays/cmc-infrastructure
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apisix
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    retry:
+      limit: 10

@@ -1,0 +1,94 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: odoo-apisix
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  project: odoo-cmc
+  source:
+    repoURL: https://apache.github.io/apisix-helm-chart
+    chart: apisix
+    targetRevision: 2.10.0
+    helm:
+      releaseName: apisix
+      valuesObject:
+        fullnameOverride: apisix
+        replicaCount: 2
+        service:
+          type: LoadBalancer
+          annotations:
+            loadbalancer.openstack.org/class: cmc-loadbalancer-public
+            loadbalancer.openstack.org/flavor-id: REPLACE_CMC_ELB_FLAVOR_ID
+          http:
+            enabled: false
+          tls:
+            servicePort: 443
+        etcd:
+          enabled: false
+        externalEtcd:
+          host:
+          - http://apisix-etcd.apisix.svc.cluster.local:2379
+          user: ''
+        apisix:
+          ssl:
+            enabled: true
+          admin:
+            allow:
+              ipList:
+              - 0.0.0.0/0
+            credentials:
+              secretName: apisix-admin-credentials
+              secretAdminKey: admin
+              secretViewerKey: viewer
+          nginx:
+            configurationSnippet:
+              httpSrv: |
+                client_max_body_size 100m;
+          prometheus:
+            enabled: true
+          pluginAttrs:
+            prometheus:
+              export_addr:
+                ip: 0.0.0.0
+                port: 9091
+        ingress-controller:
+          enabled: true
+          gateway:
+            type: ClusterIP
+          config:
+            apisix:
+              serviceName: apisix-admin
+              serviceNamespace: apisix
+              adminAPIVersion: v3
+              existingSecret: apisix-admin-credentials
+              existingSecretAdminKeyKey: admin
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: apisix
+              app.kubernetes.io/instance: apisix
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apisix
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    retry:
+      limit: 10

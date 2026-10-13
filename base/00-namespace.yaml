@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: odoo-system
+  labels:
+    app.kubernetes.io/name: odoo
+    app.kubernetes.io/part-of: erp-enterprise
+    environment: local-test

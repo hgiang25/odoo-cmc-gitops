@@ -1,0 +1,20 @@
+# Copy to k8s/.local/cmc.yaml. No credentials belong in this file.
+context: REPLACE_CMC_CONTEXT
+domain: erp.example.com
+# Must match the actual cluster; KEDA 2.18's tested window is 1.31-1.33.
+# These minors are upstream EOL: obtain CMC's support/patch policy before use.
+kubernetesMinor: '1.32'
+images:
+  odoo: docker.io/replace-dockerhub-user/odoo-queue:17.0-20261013
+  backup: docker.io/replace-dockerhub-user/odoo-backup:15-20261013
+# Public Docker Hub repositories: []. Private repositories: [registry-credentials].
+imagePullSecrets: []
+storage:
+  blockClass: REPLACE_CMC_BLOCK_CLASS
+  sharedClass: REPLACE_RWX_NFS_CLASS
+tlsSecret: odoo-tls
+loadBalancerAnnotations:
+  loadbalancer.openstack.org/class: cmc-loadbalancer-public
+  loadbalancer.openstack.org/flavor-id: REPLACE_REGION_SPECIFIC_LB_FLAVOR_ID
+# Enable only after testing a manual backup + restore and accepting downtime.
+backupScheduleEnabled: false

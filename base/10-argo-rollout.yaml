@@ -1,0 +1,161 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: odoo-web-rollout
+  namespace: odoo-system
+  labels: {}
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: odoo
+      component: web
+  strategy:
+    canary:
+      stableService: odoo-web-stable
+      canaryService: odoo-web-canary
+      maxSurge: 20%
+      maxUnavailable: 0
+      trafficRouting:
+        apisix:
+          route:
+            name: odoo-gateway
+            rules:
+            - http
+            - websocket
+      steps:
+      - setWeight: 20
+      - pause:
+          duration: 5m
+      - setWeight: 50
+      - pause:
+          duration: 10m
+      - setWeight: 100
+  template:
+    metadata:
+      labels:
+        app: odoo
+        component: web
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 660
+      initContainers:
+      - name: render-config
+        image: odoo-queue:17.0-lab
+        command:
+        - python3
+        - /opt/odoo-k8s/render_config.py
+        env:
+        - name: ODOO_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: odoo-secrets
+              key: ADMIN_PASSWORD
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 128Mi
+        volumeMounts:
+        - name: config-template
+          mountPath: /config
+          readOnly: true
+        - name: runtime-config
+          mountPath: /etc/odoo
+      containers:
+      - name: odoo-web
+        image: odoo-queue:17.0-lab
+        imagePullPolicy: IfNotPresent
+        args:
+        - odoo
+        - -c
+        - /etc/odoo/odoo.conf
+        - --load=base,web,queue_job
+        - --max-cron-threads=0
+        - --workers=2
+        env:
+        - name: HOST
+          value: postgres-service
+        - name: PORT
+          value: '5432'
+        - name: USER
+          valueFrom:
+            secretKeyRef:
+              name: odoo-secrets
+              key: POSTGRES_USER
+        - name: PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: odoo-secrets
+              key: POSTGRES_PASSWORD
+        - name: ODOO_QUEUE_JOB_CHANNELS
+          value: root:0
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 250m
+            memory: 1Gi
+          limits:
+            cpu: 1500m
+            memory: 2.5Gi
+        volumeMounts:
+        - name: runtime-config
+          mountPath: /etc/odoo
+          readOnly: true
+        - name: filestore-volume
+          mountPath: /var/lib/odoo
+        ports:
+        - name: http
+          containerPort: 8069
+        - name: websocket
+          containerPort: 8072
+        startupProbe:
+          httpGet:
+            path: /web/health
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 30
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /web/health?db_server_status=1
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /web/health
+            port: http
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: config-template
+        configMap:
+          name: odoo-config
+      - name: runtime-config
+        emptyDir: {}
+      - name: filestore-volume
+        persistentVolumeClaim:
+          claimName: odoo-filestore-pvc

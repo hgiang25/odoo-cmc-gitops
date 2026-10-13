@@ -1,0 +1,42 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../../base
+patches:
+- path: storage.yaml
+- target:
+    group: apisix.apache.org
+    version: v2
+    kind: ApisixRoute
+    name: odoo-gateway
+  patch: |-
+    - op: add
+      path: /spec/http/0/plugins/-
+      value:
+        name: proxy-rewrite
+        enable: true
+        config:
+          headers:
+            set:
+              X-Forwarded-Host: odoo.local:30080
+              X-Forwarded-Proto: http
+    - op: add
+      path: /spec/http/1/plugins/-
+      value:
+        name: proxy-rewrite
+        enable: true
+        config:
+          headers:
+            set:
+              X-Forwarded-Host: odoo.local:30080
+              X-Forwarded-Proto: http
+    - op: add
+      path: /spec/http/2/plugins/-
+      value:
+        name: proxy-rewrite
+        enable: true
+        config:
+          headers:
+            set:
+              X-Forwarded-Host: odoo.local:30080
+              X-Forwarded-Proto: http

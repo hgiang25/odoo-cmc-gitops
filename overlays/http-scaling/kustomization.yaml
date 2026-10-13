@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../../base
+patches:
+- target:
+    group: keda.sh
+    version: v1alpha1
+    kind: ScaledObject
+    name: odoo-web-autoscaler
+  patch: '[{"op":"add","path":"/spec/triggers/-","value":{"type":"prometheus","metadata":{"serverAddress":"http://prometheus-k8s.monitoring.svc:9090","threshold":"100","query":"sum(rate(apisix_http_status{route=~\".*odoo-gateway.*\"}[1m]))","ignoreNullValues":"false"}}}]'

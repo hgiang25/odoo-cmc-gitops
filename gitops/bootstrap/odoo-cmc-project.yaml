@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: odoo-cmc
+  namespace: argocd
+spec:
+  description: Odoo and its cluster controllers on CMC Cloud
+  sourceRepos:
+  - https://github.com/hgiang25/odoo-cmc-gitops.git
+  - https://apache.github.io/apisix-helm-chart
+  - https://argoproj.github.io/argo-helm
+  - https://kedacore.github.io/charts
+  destinations:
+  - server: https://kubernetes.default.svc
+    namespace: odoo-system
+  - server: https://kubernetes.default.svc
+    namespace: apisix
+  - server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+  - server: https://kubernetes.default.svc
+    namespace: keda
+  clusterResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  namespaceResourceWhitelist:
+  - group: '*'
+    kind: '*'

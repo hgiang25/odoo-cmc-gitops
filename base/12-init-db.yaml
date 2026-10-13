@@ -1,0 +1,113 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: odoo-init-db
+  namespace: odoo-system
+  labels: {}
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        app: odoo
+        component: init
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 660
+      initContainers:
+      - name: render-config
+        image: odoo-queue:17.0-lab
+        command:
+        - python3
+        - /opt/odoo-k8s/render_config.py
+        env:
+        - name: ODOO_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: odoo-secrets
+              key: ADMIN_PASSWORD
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 128Mi
+        volumeMounts:
+        - name: config-template
+          mountPath: /config
+          readOnly: true
+        - name: runtime-config
+          mountPath: /etc/odoo
+      containers:
+      - name: odoo-init
+        image: odoo-queue:17.0-lab
+        imagePullPolicy: IfNotPresent
+        args: []
+        env:
+        - name: HOST
+          value: postgres-service
+        - name: PORT
+          value: '5432'
+        - name: USER
+          valueFrom:
+            secretKeyRef:
+              name: odoo-secrets
+              key: POSTGRES_USER
+        - name: PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: odoo-secrets
+              key: POSTGRES_PASSWORD
+        - name: ODOO_QUEUE_JOB_CHANNELS
+          value: root:0
+        - name: ADMIN_LOGIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: odoo-secrets
+              key: ADMIN_LOGIN_PASSWORD
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 1500m
+            memory: 1.5Gi
+        volumeMounts:
+        - name: runtime-config
+          mountPath: /etc/odoo
+          readOnly: true
+        - name: filestore-volume
+          mountPath: /var/lib/odoo
+        command:
+        - python3
+        - /opt/odoo-k8s/init_db.py
+      volumes:
+      - name: config-template
+        configMap:
+          name: odoo-config
+      - name: runtime-config
+        emptyDir: {}
+      - name: filestore-volume
+        persistentVolumeClaim:
+          claimName: odoo-filestore-pvc
+      restartPolicy: Never

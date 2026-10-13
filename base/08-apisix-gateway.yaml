@@ -1,0 +1,76 @@
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: odoo-gateway
+  namespace: odoo-system
+  labels: {}
+spec:
+  http:
+  - name: internal-endpoints
+    priority: 200
+    match:
+      hosts:
+      - odoo.local
+      paths:
+      - /queue_job/*
+      - /web/database
+      - /web/database/*
+    backends:
+    - serviceName: odoo-web-stable
+      servicePort: 8069
+    plugins:
+    - name: fault-injection
+      enable: true
+      config:
+        abort:
+          http_status: 403
+          body: Internal endpoint
+  - name: websocket
+    priority: 100
+    match:
+      hosts:
+      - odoo.local
+      paths:
+      - /websocket
+      - /websocket/*
+    websocket: true
+    timeout:
+      connect: 60s
+      read: 600s
+      send: 600s
+    backends:
+    - serviceName: odoo-web-stable
+      servicePort: 8072
+      weight: 100
+    - serviceName: odoo-web-canary
+      servicePort: 8072
+      weight: 0
+    plugins:
+    - name: prometheus
+      enable: true
+      config:
+        prefer_name: true
+  - name: http
+    priority: 0
+    match:
+      hosts:
+      - odoo.local
+      paths:
+      - /*
+    websocket: false
+    timeout:
+      connect: 60s
+      read: 600s
+      send: 600s
+    backends:
+    - serviceName: odoo-web-stable
+      servicePort: 8069
+      weight: 100
+    - serviceName: odoo-web-canary
+      servicePort: 8069
+      weight: 0
+    plugins:
+    - name: prometheus
+      enable: true
+      config:
+        prefer_name: true

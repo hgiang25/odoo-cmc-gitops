@@ -1,0 +1,2 @@
+# Web pods are owned exclusively by base/10-argo-rollout.yaml.
+# KEDA and Services select that Rollout; no second web Deployment.

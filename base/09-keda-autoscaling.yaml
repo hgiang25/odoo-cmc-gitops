@@ -1,0 +1,71 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: odoo-web-autoscaler
+  namespace: odoo-system
+  labels: {}
+spec:
+  scaleTargetRef:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    name: odoo-web-rollout
+  minReplicaCount: 2
+  maxReplicaCount: 10
+  pollingInterval: 15
+  cooldownPeriod: 300
+  triggers:
+  - type: cpu
+    metricType: Utilization
+    metadata:
+      value: '75'
+  - type: memory
+    metricType: Utilization
+    metadata:
+      value: '80'
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: odoo-postgresql-auth
+  namespace: odoo-system
+  labels: {}
+spec:
+  secretTargetRef:
+  - parameter: userName
+    name: odoo-secrets
+    key: POSTGRES_USER
+  - parameter: password
+    name: odoo-secrets
+    key: POSTGRES_PASSWORD
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: odoo-worker-autoscaler
+  namespace: odoo-system
+  labels: {}
+spec:
+  scaleTargetRef:
+    name: odoo-worker
+  minReplicaCount: 1
+  maxReplicaCount: 8
+  pollingInterval: 15
+  cooldownPeriod: 300
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 600
+  triggers:
+  - type: postgresql
+    metricType: AverageValue
+    authenticationRef:
+      name: odoo-postgresql-auth
+    metadata:
+      host: postgres-service.odoo-system.svc.cluster.local
+      port: '5432'
+      dbName: odoo17_dev
+      sslmode: disable
+      query: SELECT count(*) FROM queue_job WHERE state IN ('pending', 'enqueued',
+        'started')
+      targetQueryValue: '2'

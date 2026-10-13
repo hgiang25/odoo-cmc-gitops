@@ -1,0 +1,111 @@
+apiVersion: apisix.apache.org/v2
+kind: ApisixTls
+metadata:
+  name: odoo-tls
+  namespace: odoo-system
+spec:
+  hosts:
+  - REPLACE_ODOO_DOMAIN
+  secret:
+    name: odoo-tls
+    namespace: odoo-system
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: odoo-web
+  namespace: odoo-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: odoo
+      component: web
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: odoo-deny-ingress
+  namespace: odoo-system
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  ingress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: odoo-web-from-gateway
+  namespace: odoo-system
+spec:
+  podSelector:
+    matchLabels:
+      app: odoo
+      component: web
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: apisix
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: apisix
+    ports:
+    - protocol: TCP
+      port: 8069
+    - protocol: TCP
+      port: 8072
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: odoo-worker-from-runner
+  namespace: odoo-system
+spec:
+  podSelector:
+    matchLabels:
+      app: odoo
+      component: worker
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: odoo-system
+      podSelector:
+        matchLabels:
+          app: odoo
+          component: queue-runner
+    ports:
+    - protocol: TCP
+      port: 8069
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-from-app-and-keda
+  namespace: odoo-system
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: odoo-system
+      podSelector:
+        matchLabels:
+          app: odoo
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: keda
+    ports:
+    - protocol: TCP
+      port: 5432

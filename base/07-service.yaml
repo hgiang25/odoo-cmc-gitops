@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: odoo-web-stable
+  namespace: odoo-system
+  labels: {}
+spec:
+  type: ClusterIP
+  selector:
+    app: odoo
+    component: web
+  ports:
+  - name: http
+    port: 8069
+    targetPort: http
+  - name: websocket
+    port: 8072
+    targetPort: websocket
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: odoo-web-canary
+  namespace: odoo-system
+  labels: {}
+spec:
+  type: ClusterIP
+  selector:
+    app: odoo
+    component: web
+  ports:
+  - name: http
+    port: 8069
+    targetPort: http
+  - name: websocket
+    port: 8072
+    targetPort: websocket
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: odoo-web-service
+  namespace: odoo-system
+  labels: {}
+spec:
+  type: ClusterIP
+  selector:
+    app: odoo
+    component: web
+  ports:
+  - name: http
+    port: 8069
+    targetPort: http
+  - name: websocket
+    port: 8072
+    targetPort: websocket
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: odoo-worker-service
+  namespace: odoo-system
+  labels: {}
+spec:
+  type: ClusterIP
+  selector:
+    app: odoo
+    component: worker
+  ports:
+  - name: http
+    port: 8069
+    targetPort: http
+  - name: websocket
+    port: 8072
+    targetPort: websocket

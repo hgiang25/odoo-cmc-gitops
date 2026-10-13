@@ -1,0 +1,46 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: apisix-etcd-private
+  namespace: apisix
+spec:
+  podSelector:
+    matchLabels:
+      app: apisix-etcd
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: apisix
+    ports:
+    - protocol: TCP
+      port: 2379
+    - protocol: TCP
+      port: 2380
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: apisix-gateway-boundary
+  namespace: apisix
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: apisix
+  policyTypes:
+  - Ingress
+  ingress:
+  - ports:
+    - protocol: TCP
+      port: 9443
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: apisix
+    ports:
+    - protocol: TCP
+      port: 9180
+    - protocol: TCP
+      port: 9091

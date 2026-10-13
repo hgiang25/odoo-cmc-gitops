@@ -1,0 +1,40 @@
+fullnameOverride: apisix
+service:
+  type: NodePort
+  http:
+    nodePort: 30080
+etcd:
+  enabled: false
+externalEtcd:
+  host:
+  - http://apisix-etcd.apisix.svc.cluster.local:2379
+  user: ''
+apisix:
+  admin:
+    allow:
+      ipList:
+      - 0.0.0.0/0
+    credentials:
+      secretName: apisix-admin-credentials
+      secretAdminKey: admin
+      secretViewerKey: viewer
+  nginx:
+    configurationSnippet:
+      httpSrv: |
+        client_max_body_size 100m;
+  prometheus:
+    enabled: true
+  pluginAttrs:
+    prometheus:
+      export_addr:
+        ip: 0.0.0.0
+        port: 9091
+ingress-controller:
+  enabled: true
+  config:
+    apisix:
+      serviceName: apisix-admin
+      serviceNamespace: apisix
+      adminAPIVersion: v3
+      existingSecret: apisix-admin-credentials
+      existingSecretAdminKeyKey: admin

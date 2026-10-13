@@ -1,0 +1,79 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: odoo-disaster-recovery-backup
+  namespace: odoo-system
+  labels: {}
+spec:
+  schedule: 0 2 * * *
+  timeZone: Asia/Ho_Chi_Minh
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: odoo
+            component: disaster-recovery
+        spec:
+          serviceAccountName: odoo-backup
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            fsGroup: 101
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 60
+          containers:
+          - name: backup
+            image: odoo-backup:15-lab
+            command:
+            - python3
+            - /opt/backup/backup.py
+            env:
+            - name: PGHOST
+              value: postgres-service
+            - name: PGDATABASE
+              value: odoo17_dev
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-secrets
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-secrets
+                  key: POSTGRES_PASSWORD
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                cpu: 1000m
+                memory: 512Mi
+            volumeMounts:
+            - name: filestore
+              mountPath: /var/lib/odoo
+              readOnly: true
+            - name: backup
+              mountPath: /backup
+          volumes:
+          - name: filestore
+            persistentVolumeClaim:
+              claimName: odoo-filestore-pvc
+          - name: backup
+            persistentVolumeClaim:
+              claimName: odoo-backup-pvc

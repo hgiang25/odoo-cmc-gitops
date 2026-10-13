@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: odoo-system
+resources:
+- 00-namespace.yaml
+- 01-secrets-and-configmap.yaml
+- 02-storage.yaml
+- 03-postgres.yaml
+- 06-odoo-worker.yaml
+- 06-odoo-cron-and-runner.yaml
+- 07-service.yaml
+- 08-apisix-gateway.yaml
+- 09-keda-autoscaling.yaml
+- 10-argo-rollout.yaml
+- backup-rbac.yaml
+- 11-backup-cronjob.yaml
+- 12-init-db.yaml
