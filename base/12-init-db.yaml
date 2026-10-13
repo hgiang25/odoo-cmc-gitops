@@ -35,6 +35,11 @@ spec:
             secretKeyRef:
               name: odoo-secrets
               key: ADMIN_PASSWORD
+        - name: ODOO_DB_SSLMODE
+          valueFrom:
+            configMapKeyRef:
+              name: odoo-runtime-settings
+              key: db_sslmode
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -73,6 +78,11 @@ spec:
             secretKeyRef:
               name: odoo-secrets
               key: POSTGRES_PASSWORD
+        - name: PGSSLMODE
+          valueFrom:
+            configMapKeyRef:
+              name: odoo-runtime-settings
+              key: db_sslmode
         - name: ODOO_QUEUE_JOB_CHANNELS
           value: root:0
         - name: ADMIN_LOGIN_PASSWORD

@@ -1,6 +1,7 @@
 """CMC manifest renderer and read-only preflight for the Argo CD deployment."""
 import argparse
 import copy
+import ipaddress
 import json
 from pathlib import Path
 import re
@@ -30,7 +31,8 @@ def run(args, data=None):
 def load_config(path, live=False):
     config = yaml.safe_load(Path(path).read_text(encoding='utf-8'))
     required = {'context', 'domain', 'kubernetesMinor', 'images', 'imagePullSecrets',
-                'storage', 'tlsSecret', 'loadBalancerAnnotations', 'backupScheduleEnabled'}
+                'storage', 'database', 's3', 'tlsSecret', 'loadBalancerAnnotations',
+                'backupScheduleEnabled'}
     if not isinstance(config, dict) or set(config) != required:
         raise ValueError(f'Config keys must be exactly: {sorted(required)}')
     if not isinstance(config['context'], str) or not config['context'].strip():
@@ -56,6 +58,18 @@ def load_config(path, live=False):
             raise ValueError('Cloud images need a release tag or digest, not latest/local lab tags')
     if set(config['storage']) != {'blockClass', 'sharedClass'}:
         raise ValueError('storage must specify blockClass and sharedClass')
+    if set(config['database']) != {'privateIp'}:
+        raise ValueError('database must specify the CMC DBaaS privateIp')
+    try:
+        ipaddress.ip_address(config['database']['privateIp'])
+    except ValueError as error:
+        raise ValueError('database.privateIp must be an IPv4 or IPv6 address') from error
+    if set(config['s3']) != {'endpointUrl', 'bucket', 'prefix', 'region'}:
+        raise ValueError('s3 must specify endpointUrl, bucket, prefix and region')
+    if not re.fullmatch(r'https://[^/]+', config['s3']['endpointUrl']):
+        raise ValueError('s3.endpointUrl must be an HTTPS origin without a path')
+    if not re.fullmatch(r'[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]', config['s3']['bucket']):
+        raise ValueError('s3.bucket is invalid')
     if not isinstance(config['imagePullSecrets'], list):
         raise ValueError('imagePullSecrets must be a list (empty for public Docker Hub)')
     for name in [config['tlsSecret'], *config['imagePullSecrets'], *config['storage'].values()]:
@@ -91,8 +105,8 @@ def transform(docs, config):
         if pod is not None:
             custom = False
             for container in pod.get('initContainers', []) + pod.get('containers', []):
-                for key, old in (('odoo', 'odoo-queue:17.0-lab'), ('backup', 'odoo-backup:15-lab')):
-                    if container['image'] == old:
+                for key, marker in (('odoo', 'odoo-queue'), ('backup', 'odoo-backup')):
+                    if marker in container['image']:
                         container['image'] = config['images'][key]
                         container['imagePullPolicy'] = 'IfNotPresent'
                         custom = True
@@ -104,66 +118,37 @@ def transform(docs, config):
                     'whenUnsatisfiable': 'ScheduleAnyway',
                     'labelSelector': {'matchLabels': {'app': 'odoo', 'component': 'web'}}}]
         if doc['kind'] == 'PersistentVolumeClaim':
-            key = 'blockClass' if doc['metadata']['name'] == 'postgres-pvc' else 'sharedClass'
-            doc['spec']['storageClassName'] = config['storage'][key]
+            doc['spec']['storageClassName'] = config['storage']['sharedClass']
+        if doc['kind'] == 'EndpointSlice' and doc['metadata']['name'] == 'postgres-service-dbaas':
+            doc['addressType'] = 'IPv6' if ':' in config['database']['privateIp'] else 'IPv4'
+            doc['endpoints'][0]['addresses'] = [config['database']['privateIp']]
+        if doc['kind'] == 'ConfigMap' and doc['metadata']['name'] == 'odoo-runtime-settings':
+            doc['data'].update({'s3_required': 'true', 's3_endpoint_url': config['s3']['endpointUrl'],
+                's3_bucket': config['s3']['bucket'], 's3_prefix': config['s3']['prefix'],
+                'aws_region': config['s3']['region']})
         if doc['kind'] == 'CronJob':
             doc['spec']['suspend'] = not config['backupScheduleEnabled']
         if doc['kind'] == 'ApisixRoute':
             for rule in doc['spec']['http']:
                 rule['match']['hosts'] = [config['domain']]
-                rule['plugins'].append({'name': 'proxy-rewrite', 'enable': True, 'config': {
-                    'headers': {'set': {'X-Forwarded-Host': config['domain'],
-                                        'X-Forwarded-Proto': 'https'}}}})
+                proxy = next((p for p in rule['plugins'] if p['name'] == 'proxy-rewrite'), None)
+                if proxy is None:
+                    proxy = {'name': 'proxy-rewrite', 'enable': True, 'config': {'headers': {'set': {}}}}
+                    rule['plugins'].append(proxy)
+                proxy['config']['headers']['set'].update(
+                    {'X-Forwarded-Host': config['domain'], 'X-Forwarded-Proto': 'https'})
+        if doc['kind'] == 'ApisixTls':
+            doc['spec']['hosts'] = [config['domain']]
     return docs
 
 
-def resource(kind, name, spec, namespace='odoo-system', api='networking.k8s.io/v1'):
-    return {'apiVersion': api, 'kind': kind,
-            'metadata': {'name': name, 'namespace': namespace}, 'spec': spec}
-
-
-def peer(namespace, labels=None):
-    value = {'namespaceSelector': {'matchLabels': {'kubernetes.io/metadata.name': namespace}}}
-    if labels is not None:
-        value['podSelector'] = {'matchLabels': labels}
-    return value
-
-
-def policies():
-    def rule(peers, ports):
-        return {'from': peers, 'ports': [{'protocol': 'TCP', 'port': port} for port in ports]}
-    def policy(name, labels, rules, namespace='odoo-system'):
-        return resource('NetworkPolicy', name, {'podSelector': {'matchLabels': labels},
-                        'policyTypes': ['Ingress'], 'ingress': rules}, namespace)
-    return [
-        policy('odoo-deny-ingress', {}, []),
-        policy('odoo-web-from-gateway', {'app': 'odoo', 'component': 'web'},
-               [rule([peer('apisix', {'app.kubernetes.io/name': 'apisix'})], [8069, 8072])]),
-        policy('odoo-worker-from-runner', {'app': 'odoo', 'component': 'worker'},
-               [rule([peer('odoo-system', {'app': 'odoo', 'component': 'queue-runner'})], [8069])]),
-        policy('postgres-from-app-and-keda', {'app': 'postgres'},
-               [rule([peer('odoo-system', {'app': 'odoo'}), peer('keda')], [5432])]),
-        policy('apisix-etcd-private', {'app': 'apisix-etcd'},
-               [rule([peer('apisix')], [2379, 2380])], 'apisix'),
-        policy('apisix-gateway-boundary', {'app.kubernetes.io/name': 'apisix'},
-               [{'ports': [{'protocol': 'TCP', 'port': 9443}]},
-                rule([peer('apisix')], [9180, 9091])], 'apisix'),
-    ]
-
-
 def artifacts(config):
-    app = transform(render(ROOT), config)
-    app += [resource('ApisixTls', 'odoo-tls', {'hosts': [config['domain']],
-            'secret': {'name': config['tlsSecret'], 'namespace': 'odoo-system'}},
-            api='apisix.apache.org/v2'),
-            resource('PodDisruptionBudget', 'odoo-web', {'minAvailable': 1,
-            'selector': {'matchLabels': {'app': 'odoo', 'component': 'web'}}}, api='policy/v1')]
-    network = policies()
-    app += [d for d in network if d['metadata']['namespace'] == 'odoo-system']
+    app = transform(render(ROOT / 'overlays/cmc'), config)
     check(app, odoo_image=config['images']['odoo'])
-    infrastructure = list(yaml.safe_load_all((ROOT / 'infrastructure/etcd.yaml').read_text()))
-    infrastructure[0]['spec']['volumeClaimTemplates'][0]['spec']['storageClassName'] = config['storage']['blockClass']
-    infrastructure += [d for d in network if d['metadata']['namespace'] == 'apisix']
+    infrastructure = render(ROOT / 'overlays/cmc-infrastructure')
+    etcd = next(d for d in infrastructure if d['kind'] == 'StatefulSet' and
+                d['metadata']['name'] == 'apisix-etcd')
+    etcd['spec']['volumeClaimTemplates'][0]['spec']['storageClassName'] = config['storage']['blockClass']
     values = yaml.safe_load((ROOT / 'helm/apisix-values.yaml').read_text())
     values['replicaCount'] = 2
     values['service'] = {'type': 'LoadBalancer', 'http': {'enabled': False},
@@ -180,7 +165,7 @@ def artifacts(config):
     init = transform([yaml.safe_load((ROOT / 'base/12-init-db.yaml').read_text())], config)
     restore = transform([yaml.safe_load((ROOT / 'dr/restore-job.yaml').read_text())], config)
     return {'app.yaml': app, 'data.yaml': [d for d in app if d['kind'] in (
-        'PersistentVolumeClaim', 'ConfigMap', 'StatefulSet') or
+        'PersistentVolumeClaim', 'ConfigMap', 'EndpointSlice') or
         (d['kind'] == 'Service' and d['metadata']['name'] == 'postgres-service')],
         'init-db.yaml': init, 'restore-job.yaml': restore, 'infrastructure.yaml': infrastructure,
         'apisix-values.yaml': [values]}
@@ -251,12 +236,21 @@ class Cluster:
             rollout = self.get('rollout', 'odoo-web-rollout', 'odoo-system')
             if rollout and rollout.get('status', {}).get('phase') != 'Healthy':
                 raise ValueError('Existing Rollout must be Healthy before deploy')
-        if self.get('pvc', 'postgres-pvc', 'odoo-system') and not self.get('secret', 'odoo-secrets', 'odoo-system'):
-            raise ValueError('Database PVC exists without credentials: restore original Secret')
-        for name in ('postgres-pvc', 'odoo-filestore-pvc', 'odoo-backup-pvc', 'odoo-restore-pvc'):
+        required_secrets = {
+            'odoo-secrets': {'POSTGRES_USER', 'POSTGRES_PASSWORD', 'ADMIN_PASSWORD',
+                             'ADMIN_LOGIN_PASSWORD'},
+            'odoo-s3-credentials': {'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'},
+        }
+        for name, keys in required_secrets.items():
+            secret = self.get('secret', name, 'odoo-system')
+            if not secret or not keys.issubset(secret.get('data', {})):
+                raise ValueError(f'Missing runtime Secret: {name}')
+        if self.get('pvc', 'postgres-pvc', 'odoo-system'):
+            raise ValueError('Legacy postgres-pvc still exists; migrate and verify DBaaS before pruning it')
+        for name in ('odoo-filestore-pvc', 'odoo-backup-pvc', 'odoo-restore-pvc'):
             claim = self.get('pvc', name, 'odoo-system')
             if claim:
-                expected = self.config['storage']['blockClass' if name == 'postgres-pvc' else 'sharedClass']
+                expected = self.config['storage']['sharedClass']
                 if claim['spec'].get('storageClassName') != expected:
                     raise ValueError(f'PVC {name} has a different immutable StorageClass; migrate data explicitly')
         if controllers:

@@ -1,7 +1,7 @@
 """Render pinned Helm charts and validate CMC custom resources against their CRDs.
 
 Requires Helm, kubectl, PyYAML and jsonschema; reads chart repositories, never a cluster.
-Run from repository root: python k8s/tests/validate_cloud_charts.py
+Run from repository root: python tests/validate_cloud_charts.py
 """
 from pathlib import Path
 import sys
@@ -52,7 +52,7 @@ def main():
                 for ver in doc['spec']['versions']:
                     schemas[(doc['spec']['group'] + '/' + ver['name'],
                              doc['spec']['names']['kind'])] = ver['schema']['openAPIV3Schema']
-        gitops_values = yaml.safe_load((cmc.ROOT / 'gitops/applications/apisix.yaml').read_text(
+        gitops_values = yaml.safe_load((cmc.ROOT / 'clusters/cmc/apisix.yaml').read_text(
             encoding='utf-8'))['spec']['source']['helm']['valuesObject']
         values.write_text(yaml.safe_dump(gitops_values), encoding='utf-8')
         cmc.run(['helm', 'template', 'apisix', 'apisix',
@@ -65,9 +65,9 @@ def main():
         if doc['apiVersion'].split('/')[0] in ('apisix.apache.org', 'argoproj.io', 'keda.sh'):
             jsonschema.validate(doc, schemas[(doc['apiVersion'], doc['kind'])])
             count += 1
-    gitops = cmc.render(cmc.ROOT / 'gitops/applications')
-    gitops += [yaml.safe_load((cmc.ROOT / 'gitops/bootstrap/odoo-cmc-root.yaml').read_text(
-        encoding='utf-8')), yaml.safe_load((cmc.ROOT / 'gitops/bootstrap/odoo-cmc-project.yaml').read_text(
+    gitops = cmc.render(cmc.ROOT / 'clusters/cmc')
+    gitops += [yaml.safe_load((cmc.ROOT / 'bootstrap/odoo-cmc-root.yaml').read_text(
+        encoding='utf-8')), yaml.safe_load((cmc.ROOT / 'bootstrap/odoo-cmc-project.yaml').read_text(
         encoding='utf-8'))]
     for doc in gitops:
         jsonschema.validate(doc, schemas[(doc['apiVersion'], doc['kind'])])

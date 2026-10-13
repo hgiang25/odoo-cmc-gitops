@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/hgiang25/odoo-cmc-gitops.git
     targetRevision: main
-    path: gitops/applications
+    path: clusters/cmc
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

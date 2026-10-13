@@ -1,4 +1,4 @@
-# Copy to k8s/.local/cmc.yaml. No credentials belong in this file.
+# Copy to .local/cmc.yaml. No credentials belong in this file.
 context: REPLACE_CMC_CONTEXT
 domain: erp.example.com
 # Must match the actual cluster; KEDA 2.18's tested window is 1.31-1.33.
@@ -12,6 +12,13 @@ imagePullSecrets: []
 storage:
   blockClass: REPLACE_CMC_BLOCK_CLASS
   sharedClass: REPLACE_RWX_NFS_CLASS
+database:
+  privateIp: 10.0.0.10
+s3:
+  endpointUrl: https://s3.hcm-5.cloud.cmctelecom.vn
+  bucket: replace-odoo-backups
+  prefix: odoo/backups
+  region: us-east-1
 tlsSecret: odoo-tls
 loadBalancerAnnotations:
   loadbalancer.openstack.org/class: cmc-loadbalancer-public

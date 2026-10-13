@@ -117,4 +117,4 @@ foreach ($Deployment in @('odoo-worker','odoo-cron','odoo-queue-runner')) {
 Invoke-Kube @('-n','odoo-system','wait','--for=condition=Available','rollout/odoo-web-rollout','--timeout=300s')
 Invoke-Kube @('-n','odoo-system','wait','--for=condition=Ready','scaledobject/odoo-web-autoscaler','scaledobject/odoo-worker-autoscaler','--timeout=180s')
 Invoke-Kube @('-n','odoo-system','get','pods,svc,pvc,rollouts,scaledobjects,apisixroutes')
-Write-Host 'Deployment ready. Add 127.0.0.1 odoo.local to hosts, then run .\k8s\port-forward.ps1.'
+Write-Host 'Deployment ready. Add 127.0.0.1 odoo.local to hosts, then run .\port-forward.ps1.'

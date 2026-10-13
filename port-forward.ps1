@@ -16,7 +16,7 @@ if ($LASTEXITCODE -ne 0 -or $Contexts -notcontains $Context) {
 
 & kubectl --context $Context -n apisix get service apisix-gateway | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    throw "Service 'apisix-gateway' is unavailable. Run .\k8s\deploy.ps1 first."
+    throw "Service 'apisix-gateway' is unavailable. Run .\deploy.ps1 first."
 }
 
 Write-Host "Forwarding http://odoo.local:$LocalPort to APISIX. Keep this terminal open." -ForegroundColor Green

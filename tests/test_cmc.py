@@ -11,7 +11,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cmc
-from gitops.update_images import update
+from scripts.update_images import update
 
 
 class CloudTests(unittest.TestCase):
@@ -44,9 +44,9 @@ class CloudTests(unittest.TestCase):
     def test_storage_tls_network_and_backup_boundaries(self):
         for doc in self.docs['app.yaml']:
             if doc['kind'] == 'PersistentVolumeClaim':
-                block = doc['metadata']['name'] == 'postgres-pvc'
-                self.assertEqual(doc['spec']['accessModes'], ['ReadWriteOnce' if block else 'ReadWriteMany'])
-                self.assertEqual(doc['spec']['storageClassName'], self.config['storage']['blockClass' if block else 'sharedClass'])
+                self.assertNotEqual(doc['metadata']['name'], 'postgres-pvc')
+                self.assertEqual(doc['spec']['accessModes'], ['ReadWriteMany'])
+                self.assertEqual(doc['spec']['storageClassName'], self.config['storage']['sharedClass'])
             if doc['kind'] == 'ApisixRoute':
                 for rule in doc['spec']['http']:
                     self.assertEqual(rule['match']['hosts'], [self.config['domain']])
@@ -55,6 +55,14 @@ class CloudTests(unittest.TestCase):
             if doc['kind'] == 'CronJob':
                 self.assertTrue(doc['spec']['suspend'])
         self.assertTrue(any(d['kind'] == 'ApisixTls' for d in self.docs['app.yaml']))
+        endpoint = next(d for d in self.docs['app.yaml'] if d['kind'] == 'EndpointSlice')
+        self.assertEqual(endpoint['endpoints'][0]['addresses'], [self.config['database']['privateIp']])
+        settings = next(d for d in self.docs['app.yaml'] if d['kind'] == 'ConfigMap'
+                        and d['metadata']['name'] == 'odoo-runtime-settings')
+        self.assertEqual(settings['data']['s3_required'], 'true')
+        self.assertEqual(settings['data']['s3_bucket'], self.config['s3']['bucket'])
+        self.assertFalse(any(d['kind'] == 'StatefulSet' and d['metadata']['name'] == 'postgres'
+                             for d in self.docs['app.yaml']))
         deny = next(d for d in self.docs['app.yaml'] if d['metadata']['name'] == 'odoo-deny-ingress')
         self.assertEqual(deny['spec']['ingress'], [])
 
@@ -98,6 +106,10 @@ class CloudTests(unittest.TestCase):
                 {'type': 'Ready', 'status': 'True'}]}} for _ in range(2)]}
         if kind == 'secret' and name == self.config['tlsSecret']:
             return {'type': 'kubernetes.io/tls', 'data': {'tls.crt': 'fake', 'tls.key': 'fake'}}
+        if kind == 'secret' and name in ('odoo-secrets', 'odoo-s3-credentials'):
+            keys = ({'POSTGRES_USER', 'POSTGRES_PASSWORD', 'ADMIN_PASSWORD', 'ADMIN_LOGIN_PASSWORD'}
+                    if name == 'odoo-secrets' else {'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'})
+            return {'type': 'Opaque', 'data': {key: 'fake' for key in keys}}
         return None
 
     def test_preflight_missing_storage_and_lost_db_secret(self):
@@ -106,13 +118,13 @@ class CloudTests(unittest.TestCase):
             def get(kind, name=None, namespace=None):
                 if failure == 'storage' and kind == 'storageclass':
                     return None
-                if failure == 'secret' and kind == 'pvc' and name == 'postgres-pvc':
-                    return {'spec': {'storageClassName': self.config['storage']['blockClass']}}
+                if failure == 'secret' and kind == 'secret' and name == 'odoo-secrets':
+                    return None
                 return self.preflight_get(kind, name, namespace)
             with patch.object(cluster, 'kube', side_effect=[self.config['context'], json.dumps({
                 'serverVersion': {'major': '1', 'minor': '32', 'gitVersion': 'v1.32.7'}})]), \
                 patch.object(cluster, 'get', side_effect=get):
-                with self.assertRaisesRegex(ValueError, 'StorageClass|original Secret'):
+                with self.assertRaisesRegex(ValueError, 'StorageClass|runtime Secret'):
                     cluster.preflight()
 
     def test_cmc_cli_has_no_direct_cluster_deploy_action(self):

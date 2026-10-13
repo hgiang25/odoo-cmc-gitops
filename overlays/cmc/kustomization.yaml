@@ -4,6 +4,7 @@ namespace: odoo-system
 resources:
 - ../../base
 - cloud-resources.yaml
+- dbaas-endpoint.yaml
 
 generatorOptions:
   disableNameSuffixHash: true
@@ -12,6 +13,16 @@ configMapGenerator:
   namespace: odoo-system
   literals:
   - domain=REPLACE_ODOO_DOMAIN
+- name: odoo-runtime-settings
+  namespace: odoo-system
+  behavior: merge
+  literals:
+  - db_sslmode=prefer
+  - s3_required=true
+  - s3_endpoint_url=REPLACE_CMC_S3_ENDPOINT_URL
+  - s3_bucket=REPLACE_CMC_S3_BUCKET
+  - s3_prefix=odoo/backups
+  - aws_region=us-east-1
 
 images:
 - name: odoo-queue
@@ -22,6 +33,7 @@ images:
   newTag: REPLACE_IMAGE_TAG
 
 patches:
+- path: delete-in-cluster-postgres.yaml
 - target:
     kind: Namespace
     name: odoo-system
@@ -33,13 +45,6 @@ patches:
       path: /metadata/annotations
       value:
         argocd.argoproj.io/sync-wave: "-30"
-- target:
-    kind: PersistentVolumeClaim
-    name: postgres-pvc
-  patch: |-
-    - op: add
-      path: /spec/storageClassName
-      value: REPLACE_CMC_BLOCK_STORAGE_CLASS
 - target:
     kind: PersistentVolumeClaim
     name: odoo-(filestore|backup|restore)-pvc
@@ -56,15 +61,7 @@ patches:
         argocd.argoproj.io/sync-wave: "-20"
 - target:
     kind: ConfigMap
-    name: odoo-config
-  patch: |-
-    - op: add
-      path: /metadata/annotations
-      value:
-        argocd.argoproj.io/sync-wave: "-20"
-- target:
-    kind: StatefulSet
-    name: postgres
+    name: odoo-(config|runtime-settings)
   patch: |-
     - op: add
       path: /metadata/annotations
@@ -78,6 +75,8 @@ patches:
       path: /metadata/annotations
       value:
         argocd.argoproj.io/sync-wave: "-20"
+    - op: remove
+      path: /spec/selector
 - target:
     kind: Job
     name: odoo-init-db

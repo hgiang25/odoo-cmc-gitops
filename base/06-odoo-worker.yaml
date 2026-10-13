@@ -43,6 +43,11 @@ spec:
             secretKeyRef:
               name: odoo-secrets
               key: ADMIN_PASSWORD
+        - name: ODOO_DB_SSLMODE
+          valueFrom:
+            configMapKeyRef:
+              name: odoo-runtime-settings
+              key: db_sslmode
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

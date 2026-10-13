@@ -48,6 +48,48 @@ spec:
                 secretKeyRef:
                   name: odoo-secrets
                   key: POSTGRES_PASSWORD
+            - name: PGSSLMODE
+              valueFrom:
+                configMapKeyRef:
+                  name: odoo-runtime-settings
+                  key: db_sslmode
+            - name: S3_REQUIRED
+              valueFrom:
+                configMapKeyRef:
+                  name: odoo-runtime-settings
+                  key: s3_required
+            - name: S3_ENDPOINT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: odoo-runtime-settings
+                  key: s3_endpoint_url
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: odoo-runtime-settings
+                  key: s3_bucket
+            - name: S3_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: odoo-runtime-settings
+                  key: s3_prefix
+            - name: AWS_DEFAULT_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: odoo-runtime-settings
+                  key: aws_region
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-s3-credentials
+                  key: AWS_ACCESS_KEY_ID
+                  optional: true
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-s3-credentials
+                  key: AWS_SECRET_ACCESS_KEY
+                  optional: true
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:

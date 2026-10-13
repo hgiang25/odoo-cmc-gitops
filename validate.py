@@ -90,11 +90,24 @@ def main():
     cmc_docs = render(ROOT / "overlays/cmc")
     check(cmc_docs, odoo_image=(
         "docker.io/REPLACE_DOCKERHUB_USERNAME/odoo-queue:REPLACE_IMAGE_TAG"))
+    cmc_index = {(d["kind"], d["metadata"]["name"]): d for d in cmc_docs}
+    assert ("StatefulSet", "postgres") not in cmc_index
+    assert ("PersistentVolumeClaim", "postgres-pvc") not in cmc_index
+    assert ("EndpointSlice", "postgres-service-dbaas") in cmc_index
+    assert "selector" not in cmc_index["Service", "postgres-service"]["spec"]
+    runtime = cmc_index["ConfigMap", "odoo-runtime-settings"]["data"]
+    assert runtime["s3_required"] == "true"
+    assert runtime["s3_endpoint_url"].startswith("REPLACE_")
+    backup = cmc_index["CronJob", "odoo-disaster-recovery-backup"]
+    backup_env = {item["name"]: item for item in
+                  backup["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["env"]}
+    assert backup_env["S3_BUCKET"]["valueFrom"]["configMapKeyRef"]["name"] == "odoo-runtime-settings"
+    assert backup_env["AWS_ACCESS_KEY_ID"]["valueFrom"]["secretKeyRef"]["name"] == "odoo-s3-credentials"
     sets.append(cmc_docs)
     infrastructure = render(ROOT / "overlays/cmc-infrastructure")
     assert any(d["kind"] == "StatefulSet" and d["metadata"]["name"] == "apisix-etcd"
                for d in infrastructure)
-    applications = render(ROOT / "gitops/applications")
+    applications = render(ROOT / "clusters/cmc")
     assert {d["metadata"]["name"] for d in applications} == {
         "odoo-cmc-infrastructure", "odoo-argo-rollouts", "odoo-keda",
         "odoo-apisix", "odoo-cmc"}
