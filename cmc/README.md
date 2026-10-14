@@ -1,100 +1,183 @@
 # Runbook triển khai Odoo trên CMC Cloud
 
-Luồng triển khai là pull-based GitOps:
+Luồng phát hành là pull-based GitOps:
 
 ```text
 push/merge app -> CI build và smoke-test -> Docker Hub sha-<commit>
-               -> commit tag vào repo GitOps -> Argo CD sync
-               -> Argo Rollouts chuyển traffic APISIX 20% -> 50% -> 100%
+               -> commit image tag vào repo GitOps -> Argo CD sync
+               -> canary health analysis -> APISIX chuyển 20% -> 50% -> 100%
 ```
 
-Self-hosted runner trên bastion chỉ cài Argo CD, tạo runtime Secrets và đăng ký root
-Application. Sau bootstrap, không dùng runner hoặc `kubectl set image` để deploy Odoo.
+Self-hosted runner trên bastion chỉ cấu hình Secret runtime, kiểm tra DBaaS, bootstrap
+Argo CD và chạy kiểm tra live. Sau bootstrap, Argo CD là thành phần duy nhất reconcile
+workload Odoo.
 
-## 1. Tài nguyên CMC cần có
+## 1. Tài nguyên phải có trước khi deploy
 
-- CMC Kubernetes có ít nhất hai worker Ready và Metrics API hoạt động.
-- NFS StorageClass hỗ trợ `ReadWriteMany`; UID/GID `101` ghi được từ nhiều node.
-- Block StorageClass cho APISIX etcd staging.
-- PostgreSQL DBaaS 15 trong cùng VPC/subnet có private IP cố định hoặc VIP (backup
-  image hiện ghim `pg_dump` 15, nên không trỏ nó vào server major mới hơn).
-  User Odoo cần quyền tạo database trong lần init; đặt `max_connections >= 300` bằng
-  Configuration Group vì GitOps không thể chỉnh tham số của DBaaS.
-- CMC S3 bucket; nên bật versioning, lifecycle và Object Lock nếu gói hỗ trợ.
+- CMC Kubernetes có ít nhất hai worker `Ready` và Metrics API hoạt động.
+- NFS/File StorageClass hỗ trợ `ReadWriteMany`; UID/GID `101` ghi được từ nhiều node.
+- Block StorageClass cho APISIX etcd.
+- PostgreSQL DBaaS **16** trong cùng VPC, có private IP hoặc hostname mà pod trong
+  cluster truy cập được. User Odoo cần quyền tạo database trong lần init và DBaaS cần
+  `max_connections >= 300`.
 - Domain và certificate TLS hợp lệ.
-- Security Group cho phép worker/node CIDR và KEDA kết nối DBaaS TCP 5432; cho phép
-  egress HTTPS tới S3 endpoint. Kubernetes NetworkPolicy không bảo vệ DBaaS bên ngoài
-  cluster, nên Security Group là lớp bắt buộc.
+- CMC ELB flavor ID đúng region.
+- Security Group cho phép worker/node CIDR kết nối DBaaS TCP 5432.
 
-CMC hỗ trợ Service `LoadBalancer` qua các annotation
-`loadbalancer.openstack.org/class` và `loadbalancer.openstack.org/flavor-id`. Overlay
-chỉ mở listener TLS 443 của APISIX; HTTP không được publish.
+S3, backup, restore và DR đang để ngoài phạm vi triển khai hiện tại. CronJob backup vẫn
+`suspend`; các GitHub Secret S3 là tùy chọn và chưa cần tạo.
 
-## 2. Điền desired state
+## 2. Placeholder là gì?
 
-Thay mọi placeholder rồi commit vào `main`:
+Các chuỗi `REPLACE_*` là **sentinel**, không phải Secret. Chúng giúp pipeline phát hiện
+rằng cấu hình cloud thật chưa được cung cấp, thay vì vô tình deploy domain, StorageClass
+hoặc ELB giả.
 
-| Placeholder | File | Giá trị |
-|---|---|---|
-| `REPLACE_ODOO_DOMAIN` | `overlays/cmc/kustomization.yaml` | Ví dụ `erp.example.vn` |
-| `REPLACE_CMC_DBAAS_PRIVATE_IP` | `overlays/cmc/dbaas-endpoint.yaml` | Private IP/VIP PostgreSQL |
-| `REPLACE_CMC_S3_ENDPOINT_URL` | `overlays/cmc/kustomization.yaml` | HTTPS endpoint đúng region |
-| `REPLACE_CMC_S3_BUCKET` | `overlays/cmc/kustomization.yaml` | Bucket backup đã tạo |
-| `REPLACE_CMC_RWX_STORAGE_CLASS` | `overlays/cmc/kustomization.yaml` | NFS RWX StorageClass |
-| `REPLACE_CMC_BLOCK_STORAGE_CLASS` | `overlays/cmc-infrastructure/kustomization.yaml` | Block StorageClass |
-| `REPLACE_CMC_ELB_FLAVOR_ID` | `clusters/cmc/apisix.yaml` | Flavor ID đúng region |
+| Placeholder | Được thay bởi |
+|---|---|
+| `REPLACE_ODOO_DOMAIN` | GitHub Variable `ODOO_DOMAIN` |
+| `REPLACE_CMC_RWX_STORAGE_CLASS` | `CMC_RWX_STORAGE_CLASS`; mặc định `nfs-csi` |
+| `REPLACE_CMC_BLOCK_STORAGE_CLASS` | `CMC_BLOCK_STORAGE_CLASS` |
+| `REPLACE_CMC_ELB_FLAVOR_ID` | `CMC_ELB_FLAVOR_ID` |
+| `REPLACE_DOCKERHUB_USERNAME`, `REPLACE_IMAGE_TAG` | Pipeline release của app repo |
 
-`REPLACE_DOCKERHUB_USERNAME` và `REPLACE_IMAGE_TAG` được pipeline app thay sau lần
-publish đầu tiên. Bootstrap từ chối chạy nếu bất kỳ `REPLACE_` nào còn tồn tại.
+Không nên xóa placeholder trước khi có giá trị thật: manifest sẽ mất gate an toàn nhưng
+vẫn không có cấu hình để chạy. Bạn không cần sửa YAML bằng tay. Sau khi điền GitHub
+Variables, chạy workflow **Configure CMC desired state**; workflow validate rồi commit
+các giá trị không nhạy cảm vào GitOps. Pipeline app sẽ thay hai placeholder image.
 
-DBaaS được ánh xạ vào DNS nội bộ `postgres-service.odoo-system.svc.cluster.local`
-bằng headless Service + EndpointSlice. Vì vậy Odoo, init Job, backup và KEDA dùng cùng
-một tên kết nối; đổi private IP chỉ cần một commit GitOps.
+IP/hostname DBaaS không còn là placeholder trong Git. Bootstrap đọc nó từ GitHub Variable,
+tạo Kubernetes Secret `odoo-db-connection`, và cả Odoo lẫn KEDA dùng chung Secret này.
+Đổi endpoint hoặc credential chỉ cần cập nhật Variable/Secret rồi chạy lại bootstrap;
+workflow sẽ rolling-restart các workload Odoo đang tồn tại để chúng đọc giá trị mới.
 
 ## 3. Cấu hình GitHub
 
-Repo ứng dụng `erp-odoo-cmccloud`:
+### App repo `hgiang25/erp-odoo-cmccloud`
 
-- `DOCKERHUB_USERNAME`
-- `DOCKERHUB_TOKEN`
-- `GITOPS_PAT`: fine-grained token chỉ có `Contents: Read and write` trên
-  `odoo-cmc-gitops`
+GitHub Secrets bắt buộc:
 
-Repo GitOps này:
+- `DOCKERHUB_USERNAME`: Docker Hub username.
+- `DOCKERHUB_TOKEN`: Docker Hub access token, không dùng password tài khoản.
+- `GITOPS_PAT`: fine-grained PAT có quyền `Contents: Read and write` trên
+  `hgiang25/odoo-cmc-gitops`; cần thêm quyền gọi repository dispatch nếu bật verify tự động.
 
-- Variable `CMC_KUBE_CONTEXT`
-- Secret `CMC_POSTGRES_USER`
-- Secret `CMC_POSTGRES_PASSWORD`
-- Secret `CMC_S3_ACCESS_KEY_ID`
-- Secret `CMC_S3_SECRET_ACCESS_KEY`
-- Secret `CMC_TLS_CERTIFICATE`: full chain PEM
-- Secret `CMC_TLS_PRIVATE_KEY`: private key PEM
+GitHub Variable tùy chọn:
 
-Gắn self-hosted runner Linux trên bastion với labels `self-hosted`, `Linux`, `X64`;
-runner cần `kubectl`, Helm 3 và `openssl`. Kubeconfig chỉ cấp quyền cần cho bootstrap
-và các namespace của platform.
+- `CMC_AUTO_VERIFY=true`: sau khi promote image sẽ gọi workflow live verification ở repo
+  GitOps. Chỉ bật sau khi bootstrap cluster và self-hosted runner đã hoạt động.
 
-Workflow bootstrap không ghi secret vào Git. Nó tạo:
+### GitOps repo `hgiang25/odoo-cmc-gitops`
 
-- `odoo-secrets`: DB credential từ GitHub Secrets; master/login password sinh ngẫu nhiên.
-- `odoo-s3-credentials`: access key/secret key CMC S3.
-- `odoo-tls`: certificate/key; chạy lại workflow sẽ rotate TLS và S3 credentials.
-- `apisix-admin-credentials`: sinh một lần và giữ lại.
+GitHub Variables bắt buộc:
 
-`odoo-secrets` không tự overwrite nếu đã tồn tại để tránh làm mất kết nối DB. Khi
-rotate DB password, cập nhật DBaaS và Secret theo một maintenance procedure riêng.
+- `CMC_KUBE_CONTEXT`: tên context CMC có sẵn trên bastion.
+- `CMC_POSTGRES_HOST`: private IP hoặc hostname DBaaS, không kèm scheme/port.
+- `ODOO_DOMAIN`: ví dụ `erp.example.vn`.
+- `CMC_BLOCK_STORAGE_CLASS`: block StorageClass cho APISIX etcd.
+- `CMC_ELB_FLAVOR_ID`: flavor ID đúng region CMC.
 
-## 4. Thứ tự phát hành lần đầu
+GitHub Variables có mặc định:
 
-1. Chạy workflow app **CI images and GitOps promotion** bằng `workflow_dispatch`.
-2. Xác nhận commit `chore(gitops): promote ...` xuất hiện ở repo này.
-3. Chạy các validation dưới đây và đảm bảo không còn placeholder.
-4. Chạy workflow **Bootstrap Argo CD on CMC** trên bastion.
-5. Chờ năm child Applications `Healthy/Synced`.
-6. Lấy external IP của `service/apisix-gateway`, trỏ DNS domain vào ELB.
-7. Smoke-test health, login, upload attachment, WebSocket, queue job và multi-node RWX.
-8. Chạy backup thủ công + restore drill; sau khi pass mới đổi `suspend` thành `false`
-   trong patch CronJob của `overlays/cmc/kustomization.yaml`.
+- `CMC_RWX_STORAGE_CLASS`: mặc định `nfs-csi`, đúng với StorageClass NFS hiện có;
+  chỉ cần tạo Variable này nếu sau đó đổi tên StorageClass.
+- `CMC_POSTGRES_PORT`: mặc định `5432`.
+- `CMC_POSTGRES_DATABASE`: mặc định `odoo17_prod`.
+- `CMC_POSTGRES_SSLMODE`: mặc định `require`; cho phép `require`, `verify-ca`,
+  `verify-full`.
+
+GitHub Secrets bắt buộc:
+
+- `CMC_POSTGRES_USER`.
+- `CMC_POSTGRES_PASSWORD`.
+- `DOCKERHUB_USERNAME`.
+- `DOCKERHUB_TOKEN`: dùng tạo `imagePullSecret`, hỗ trợ cả Docker Hub private repository.
+- `CMC_TLS_CERTIFICATE`: full-chain PEM.
+- `CMC_TLS_PRIVATE_KEY`: private key PEM.
+
+GitHub Secrets tùy chọn, chỉ dùng khi hoàn thiện backup/DR sau này:
+
+- `CMC_S3_ACCESS_KEY_ID`.
+- `CMC_S3_SECRET_ACCESS_KEY`.
+
+Không export password/IP bằng tay trong shell bastion. GitHub Actions truyền chúng vào
+workflow; workflow tạo hoặc rotate Kubernetes Secret bằng `kubectl ... --dry-run=client |
+kubectl apply -f -`. Secret không được commit vào Git.
+
+## 4. Chuẩn bị self-hosted runner
+
+Runner Linux x64 trên bastion phải có labels `self-hosted`, `Linux`, `X64` và các lệnh:
+
+```bash
+kubectl version --client
+helm version
+openssl version
+curl --version
+```
+
+Kubeconfig trên runner phải có context đúng với `CMC_KUBE_CONTEXT`. Bastion và cluster
+phải truy cập được private endpoint DBaaS. Repo và runner nên được bảo vệ bằng branch
+protection, GitHub Environment approval và quyền Kubernetes tối thiểu cần thiết.
+
+Nếu `kubectl` thỉnh thoảng báo `You must be logged in to the server (Unauthorized)` rồi
+lệnh kế tiếp lại thành công, đây là lỗi xác thực kubeconfig/control plane, không phải lỗi
+NFS. Không cài lại Helm release `csi-driver-nfs`. Kiểm tra từ bastion:
+
+```bash
+kubectl config current-context
+kubectl auth can-i get nodes
+for i in $(seq 1 10); do
+  date -Is
+  kubectl get --raw=/readyz || true
+done
+timedatectl status
+```
+
+Nếu tất cả lần gọi đều `Unauthorized`, tải/cấp lại kubeconfig từ CMC và cài nó cho đúng
+user chạy GitHub Runner (kubeconfig của `root` không tự động dùng được bởi runner user).
+Nếu kết quả lúc thành công lúc thất bại như log hiện tại, lưu endpoint cùng thời điểm lỗi
+và yêu cầu CMC kiểm tra các API server phía sau load balancer; không dùng retry để che lỗi
+xác thực trước khi bootstrap production.
+
+NFS export dành riêng cho Odoo phải bảo đảm thư mục do CSI tạo có thể ghi bởi UID/GID
+`101`. Với `root_squash`, cấu hình khuyến nghị trên NFS server là:
+
+```exports
+/home/nfs-pv 10.0.20.0/24(rw,sync,no_subtree_check,root_squash,anonuid=101,anongid=101,mountpoint)
+```
+
+Sau khi sửa, chạy `exportfs -rav` và xác nhận `exportfs -v` có `anonuid=101` cùng
+`anongid=101`. Bootstrap tạo trước PVC thật `odoo-filestore-pvc`, chạy một Job tối thiểu
+bằng UID/GID `101` để ghi/đọc/xóa marker trên NFS rồi mới kiểm tra DBaaS và cài Argo CD.
+Nếu quyền NFS sai, pipeline dừng sớm và giữ PVC để quản trị viên sửa ownership; nó không
+tiếp tục reconcile Odoo trong trạng thái filestore không ghi được.
+
+## 5. Thứ tự triển khai lần đầu
+
+1. Tạo DBaaS PostgreSQL 16, NFS RWX StorageClass, block StorageClass, domain/TLS và ELB.
+   Cluster hiện tại đã có `nfs-csi` cho RWX và `highio` cho block storage; xác nhận lại bằng
+   `kubectl get sc` trước khi chạy workflow cấu hình.
+2. Điền GitHub Variables và Secrets ở mục 3.
+3. Chạy app workflow **CI images and GitOps promotion** bằng `workflow_dispatch` để publish
+   image bất biến và thay placeholder image.
+4. Chạy GitOps workflow **Configure CMC desired state** để commit domain, StorageClass và
+   ELB flavor.
+5. Xác nhận không còn placeholder trong cấu hình deploy:
+
+   ```bash
+   grep -R "REPLACE_" overlays/cmc overlays/cmc-infrastructure clusters/cmc
+   ```
+
+6. Gắn self-hosted runner rồi chạy **Bootstrap Argo CD on CMC**.
+7. Bootstrap tạo/rotate `odoo-db-connection`, `odoo-registry`, TLS Secret; sau đó chạy Job
+   `postgres:16-alpine` trong cluster để kiểm tra DB version, TLS và credential.
+8. Chờ năm Argo Applications `Healthy/Synced`, lấy external IP của `apisix-gateway` và
+   trỏ DNS domain vào ELB.
+9. Chạy workflow **Verify CMC reconciliation**; workflow đợi Argo, canary Rollout, xác nhận
+   image tag và gọi `https://<domain>/web/health?db_server_status=1`.
+10. Chỉ sau khi bước 9 pass mới đặt `CMC_AUTO_VERIFY=true` ở app repo.
+
+## 6. Kiểm tra offline
 
 ```bash
 python -m pip install -r requirements-tools.txt
@@ -102,12 +185,16 @@ python validate.py
 python -m unittest discover -s tests -v
 python tests/validate_cloud_charts.py
 kubectl kustomize overlays/cmc >/tmp/odoo-cmc.yaml
+```
 
+Kiểm tra live từ bastion:
+
+```bash
 CTX='ten-context-cmc'
 kubectl --context "$CTX" -n argocd get applications.argoproj.io
-kubectl --context "$CTX" -n odoo-system get pods,pvc,rollouts,scaledobjects,endpointslices
+kubectl --context "$CTX" -n odoo-system get pods,pvc,rollouts,analysisruns,scaledobjects
 kubectl --context "$CTX" -n apisix get service apisix-gateway
-curl -fsS "https://erp.example.vn/web/health"
+curl -fsS 'https://erp.example.vn/web/health?db_server_status=1'
 ```
 
 Đăng nhập user `admin`; lấy password khởi tạo:
@@ -117,32 +204,11 @@ kubectl --context "$CTX" -n odoo-system get secret odoo-secrets \
   -o jsonpath='{.data.ADMIN_LOGIN_PASSWORD}' | base64 -d; echo
 ```
 
-## 5. Backup, S3 và restore
+## 7. Giới hạn còn lại
 
-Backup dừng tạm thời web/worker/cron/runner để snapshot DB và filestore nhất quán,
-sau đó luôn cố phục hồi replica/KEDA trong `finally`. Bộ backup gồm `database.dump`,
-`filestore.tar.gz`, `metadata.json`, `SHA256SUMS`; chỉ sau khi upload đủ bốn file mới
-ghi `_SUCCESS` lên `s3://<bucket>/odoo/backups/<UTC timestamp>/`.
-
-```bash
-kubectl --context "$CTX" -n odoo-system create job \
-  --from=cronjob/odoo-disaster-recovery-backup manual-backup-001
-kubectl --context "$CTX" -n odoo-system logs -f job/manual-backup-001
-python cmc.py render --config .local/cmc.yaml
-pwsh ./dr/restore-drill.ps1 -Context "$CTX" -BackupSet 20261013T190000Z \
-  -Template .local/cmc-rendered/restore-job.yaml
-```
-
-Restore ưu tiên bản trên PVC; nếu không có, job tải bộ có marker `_SUCCESS` từ CMC S3
-rồi kiểm tra SHA256 trước khi tạo database drill mới và xác minh attachment. CMC RDS
-cũng nên bật PITR; S3 backup là lớp DR độc lập cho cả DB dump và Odoo filestore.
-
-## 6. Rollback và giới hạn
-
-Rollback release bằng cách revert commit promotion trong repo GitOps. Có thể abort
-canary đang lỗi, nhưng version cuối cùng vẫn phải được phản ánh trong Git.
-
-Thiết kế hiện tại phù hợp staging/lab: APISIX etcd vẫn một replica và backup làm Odoo
-ngừng ghi trong thời gian snapshot. Trước production cần HA etcd, kiểm thử DBaaS failover,
-monitoring/alerting, off-site retention, restore định kỳ và xác nhận support matrix của
-phiên bản Kubernetes/controller trên CMC.
+- Không tuyên bố CMC-ready trước khi test thật DBaaS, NFS RWX nhiều node, image pull,
+  ELB/TLS, WebSocket, queue job, KEDA và canary analysis.
+- APISIX etcd chạy ba member với PDB `minAvailable: 2`; production vẫn cần monitoring và
+  diễn tập mất node/volume thực tế.
+- Backup, restore, S3 retention và DR sẽ được thiết kế/nghiệm thu trong giai đoạn riêng.
+- Phiên bản Kubernetes/controller phải khớp support matrix thực tế của CMC.

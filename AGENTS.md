@@ -6,8 +6,9 @@
   thủ công được cài Argo CD, tạo runtime Secrets và apply AppProject/root Application.
 - Mọi release image dùng tag `sha-<git-sha>` do app repo cập nhật trong
   `overlays/cmc/kustomization.yaml`; không dùng `latest` trên CMC.
-- CMC dùng PostgreSQL DBaaS qua `postgres-service` + EndpointSlice. Không thêm lại
-  PostgreSQL StatefulSet vào overlay CMC; base StatefulSet chỉ dành cho local.
+- CMC dùng PostgreSQL DBaaS 16 qua Secret `odoo-db-connection` do bootstrap quản lý.
+  Không commit endpoint/credential và không thêm lại PostgreSQL StatefulSet/Service vào
+  overlay CMC; base StatefulSet chỉ dành cho local.
 - Odoo filestore/sessions cần RWX và UID/GID 101. Không thêm Redis làm session store.
 - Backup cloud phải upload CMC S3 và chỉ được xem là hoàn chỉnh khi có `_SUCCESS` sau
   checksum. Không mô tả PVC backup cùng cluster là off-site DR.

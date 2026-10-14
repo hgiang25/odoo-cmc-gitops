@@ -46,9 +46,9 @@ cmc/                       Runbook CMC và cấu hình preflight mẫu
 | Deploy/reconcile/rollback | Argo CD từ Git history |
 | Bootstrap Argo CD và runtime Secrets | workflow thủ công trên bastion |
 
-CMC overlay dùng PostgreSQL DBaaS qua headless Service + EndpointSlice; không dựng
-PostgreSQL trong cluster. Filestore và sessions vẫn cần NFS `ReadWriteMany`. Backup
-tạo snapshot DB + filestore nhất quán trên PVC staging rồi upload bộ hoàn chỉnh lên
+CMC overlay dùng PostgreSQL DBaaS 16 qua Secret `odoo-db-connection`; không dựng
+PostgreSQL trong cluster và không commit endpoint/credential vào Git. Filestore và
+sessions vẫn cần NFS `ReadWriteMany`. Backup tạo snapshot trên PVC staging rồi upload lên
 CMC S3; marker `_SUCCESS` được ghi cuối cùng. Public traffic chỉ đi qua CMC ELB
 HTTPS đến APISIX, sau đó APISIX route HTTP/WebSocket đến stable/canary Services.
 
@@ -63,5 +63,6 @@ kubectl kustomize overlays/cmc >/dev/null
 kubectl kustomize clusters/cmc >/dev/null
 ```
 
-Hướng dẫn điền CMC DBaaS, S3, NFS, ELB, DNS/TLS và thứ tự bootstrap nằm tại
-[`cmc/README.md`](cmc/README.md). Không apply overlay CMC khi còn `REPLACE_`.
+Hướng dẫn điền GitHub Variables/Secrets, cấu hình CMC và thứ tự bootstrap nằm tại
+[`cmc/README.md`](cmc/README.md). Workflow cấu hình thay placeholder không nhạy cảm;
+bootstrap từ chối chạy nếu desired state deploy vẫn còn `REPLACE_`.

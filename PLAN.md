@@ -8,7 +8,7 @@ Cập nhật 2026-10-13: phần source đã hoàn tất theo two-repository patt
 - CI kiểm tra PR, build image chứa đúng source checkout, smoke-test rồi mới push hai
   image tag `sha-<commit>` và commit promotion sang repo này.
 - Repo này là desired state duy nhất; Argo CD root theo dõi `clusters/cmc`.
-- CMC overlay dùng PostgreSQL DBaaS qua Service/EndpointSlice, NFS RWX cho
+- CMC overlay dùng PostgreSQL DBaaS 16 qua runtime Secret, NFS RWX cho
   filestore/sessions và CMC ELB HTTPS cho APISIX.
 - Backup nhất quán được lưu staging PVC và upload CMC S3; restore có thể tải lại từ
   S3 và bắt buộc kiểm tra marker/checksum.
@@ -19,12 +19,13 @@ Cập nhật 2026-10-13: phần source đã hoàn tất theo two-repository patt
 
 ## Cần dữ liệu/hạ tầng thật để nghiệm thu
 
-- Điền domain, DBaaS private IP, StorageClass, S3 endpoint/bucket và ELB flavor.
+- Điền GitHub Variables cho domain, DBaaS host, StorageClass và ELB flavor; workflow cấu
+  hình commit desired state không nhạy cảm, bootstrap tạo Secret kết nối DB.
 - Cấu hình GitHub Secrets/Variable và self-hosted runner trên bastion.
 - Xác nhận Security Group TCP 5432, NFS RWX UID/GID 101 và egress HTTPS tới S3.
 - Chạy image pipeline, bootstrap Argo CD và smoke-test trên CMC.
 - Chạy backup thủ công + restore drill trước khi bật CronJob định kỳ.
 - Nghiệm thu canary traffic, KEDA, WebSocket, multi-node filestore/session và DBaaS
-  failover. Trước production cần HA cho APISIX etcd và monitoring/alerting.
+  failover. APISIX etcd đã có ba member; trước production vẫn cần monitoring/alerting.
 
 Runbook chi tiết: [`cmc/README.md`](cmc/README.md).
