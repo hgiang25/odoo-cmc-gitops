@@ -31,7 +31,9 @@ spec:
           enabled: false
         externalEtcd:
           host:
-          - http://apisix-etcd.apisix.svc.cluster.local:2379
+          - http://apisix-etcd-0.apisix-etcd.apisix.svc.cluster.local:2379
+          - http://apisix-etcd-1.apisix-etcd.apisix.svc.cluster.local:2379
+          - http://apisix-etcd-2.apisix-etcd.apisix.svc.cluster.local:2379
           user: ''
         apisix:
           ssl:

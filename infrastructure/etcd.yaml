@@ -5,7 +5,8 @@ metadata:
   namespace: apisix
 spec:
   serviceName: apisix-etcd
-  replicas: 1
+  replicas: 3
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app: apisix-etcd
@@ -15,21 +16,37 @@ spec:
         app: apisix-etcd
     spec:
       automountServiceAccountToken: false
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: apisix-etcd
       containers:
       - name: etcd
         image: quay.io/coreos/etcd:v3.5.21
         command:
-        - etcd
-        args:
-        - --name=apisix-etcd
-        - --data-dir=/etcd-data
-        - --listen-client-urls=http://0.0.0.0:2379
-        - --advertise-client-urls=http://apisix-etcd.apisix.svc.cluster.local:2379
-        - --listen-peer-urls=http://0.0.0.0:2380
-        - --initial-advertise-peer-urls=http://apisix-etcd:2380
-        - --initial-cluster=apisix-etcd=http://apisix-etcd:2380
+        - /bin/sh
+        - -ec
+        - |
+          exec etcd \
+            --name="${HOSTNAME}" \
+            --data-dir=/etcd-data \
+            --listen-client-urls=http://0.0.0.0:2379 \
+            --advertise-client-urls="http://${HOSTNAME}.apisix-etcd.apisix.svc.cluster.local:2379" \
+            --listen-peer-urls=http://0.0.0.0:2380 \
+            --initial-advertise-peer-urls="http://${HOSTNAME}.apisix-etcd.apisix.svc.cluster.local:2380" \
+            --initial-cluster="apisix-etcd-0=http://apisix-etcd-0.apisix-etcd.apisix.svc.cluster.local:2380,apisix-etcd-1=http://apisix-etcd-1.apisix-etcd.apisix.svc.cluster.local:2380,apisix-etcd-2=http://apisix-etcd-2.apisix-etcd.apisix.svc.cluster.local:2380" \
+            --initial-cluster-state=new \
+            --initial-cluster-token=odoo-apisix-etcd
         ports:
         - containerPort: 2379
+          name: client
+        - containerPort: 2380
+          name: peer
         resources:
           requests:
             cpu: 100m
@@ -47,6 +64,17 @@ spec:
             - endpoint
             - health
           periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 6
+        livenessProbe:
+          exec:
+            command:
+            - etcdctl
+            - endpoint
+            - health
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 6
   volumeClaimTemplates:
   - metadata:
       name: data
@@ -63,6 +91,7 @@ metadata:
   name: apisix-etcd
   namespace: apisix
 spec:
+  publishNotReadyAddresses: true
   selector:
     app: apisix-etcd
   ports:
@@ -73,3 +102,14 @@ spec:
     targetPort: 2380
     name: peer
   clusterIP: None
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: apisix-etcd
+  namespace: apisix
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: apisix-etcd
