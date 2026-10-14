@@ -5,7 +5,7 @@ metadata:
   namespace: odoo-system
 spec:
   hosts:
-  - REPLACE_ODOO_DOMAIN
+  - odoo.internal
   secret:
     name: odoo-tls
     namespace: odoo-system

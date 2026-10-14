@@ -4,7 +4,7 @@ metadata:
   name: odoo-apisix
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "-10"
+    argocd.argoproj.io/sync-wave: '-10'
   finalizers:
   - resources-finalizer.argocd.argoproj.io
 spec:
@@ -22,7 +22,7 @@ spec:
           type: LoadBalancer
           annotations:
             loadbalancer.openstack.org/class: cmc-loadbalancer-public
-            loadbalancer.openstack.org/flavor-id: REPLACE_CMC_ELB_FLAVOR_ID
+            loadbalancer.openstack.org/flavor-id: a80cfbb4-326b-4819-8e67-58eca8495490
           http:
             enabled: false
           tls:
@@ -48,8 +48,9 @@ spec:
               secretViewerKey: viewer
           nginx:
             configurationSnippet:
-              httpSrv: |
-                client_max_body_size 100m;
+              httpSrv: 'client_max_body_size 100m;
+
+                '
           prometheus:
             enabled: true
           pluginAttrs:

@@ -8,7 +8,5 @@ patches:
 - target:
     kind: StatefulSet
     name: apisix-etcd
-  patch: |-
-    - op: add
-      path: /spec/volumeClaimTemplates/0/spec/storageClassName
-      value: REPLACE_CMC_BLOCK_STORAGE_CLASS
+  patch: "- op: add\n  path: /spec/volumeClaimTemplates/0/spec/storageClassName\n\
+    \  value: highio"
