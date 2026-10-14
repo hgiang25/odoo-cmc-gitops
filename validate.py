@@ -33,6 +33,11 @@ def check(resources, local=False, odoo_image="odoo-queue:17.0-lab"):
     assert options.getboolean("list_db") is False
     web = index["Rollout", "odoo-web-rollout"]
     canary = web["spec"]["strategy"]["canary"]
+    analysis_steps = [step["analysis"] for step in canary["steps"] if "analysis" in step]
+    assert analysis_steps
+    for analysis in analysis_steps:
+        for template in analysis["templates"]:
+            assert ("AnalysisTemplate", template["templateName"]) in index
     for service in (canary["stableService"], canary["canaryService"]):
         assert index["Service", service]["spec"]["selector"] == web["spec"]["selector"]["matchLabels"]
     route = index["ApisixRoute", canary["trafficRouting"]["apisix"]["route"]["name"]]
@@ -64,6 +69,10 @@ def check(resources, local=False, odoo_image="odoo-queue:17.0-lab"):
             assert memory(container["resources"]["limits"]["memory"]) >= minimum, doc["metadata"]["name"]
             for mount in container.get("volumeMounts", []):
                 assert any(v["name"] == mount["name"] for v in pod["volumes"])
+            env = {item["name"]: item for item in container.get("env", [])}
+            for name in ("HOST", "PORT", "USER", "PASSWORD"):
+                if name in env:
+                    assert env[name]["valueFrom"]["secretKeyRef"]["name"] == "odoo-db-connection"
     for scaler in [d for d in resources if d["kind"] == "ScaledObject"]:
         target = scaler["spec"]["scaleTargetRef"]
         assert (target.get("kind", "Deployment"), target["name"]) in index
@@ -88,16 +97,31 @@ def main():
     for docs, local in zip(sets, (False, True, False)):
         check(docs, local)
     cmc_docs = render(ROOT / "overlays/cmc")
-    check(cmc_docs, odoo_image=(
-        "docker.io/REPLACE_DOCKERHUB_USERNAME/odoo-queue:REPLACE_IMAGE_TAG"))
+    cmc_rollout = next(d for d in cmc_docs if d["kind"] == "Rollout"
+                       and d["metadata"]["name"] == "odoo-web-rollout")
+    cmc_odoo_image = next(c["image"] for c in cmc_rollout["spec"]["template"]["spec"]["containers"]
+                          if c["name"] == "odoo-web")
+    assert cmc_odoo_image.startswith("docker.io/") and not cmc_odoo_image.endswith(":latest")
+    check(cmc_docs, odoo_image=cmc_odoo_image)
     cmc_index = {(d["kind"], d["metadata"]["name"]): d for d in cmc_docs}
     assert ("StatefulSet", "postgres") not in cmc_index
     assert ("PersistentVolumeClaim", "postgres-pvc") not in cmc_index
-    assert ("EndpointSlice", "postgres-service-dbaas") in cmc_index
-    assert "selector" not in cmc_index["Service", "postgres-service"]["spec"]
+    assert not any(kind == "EndpointSlice" for kind, _ in cmc_index)
+    assert ("Service", "postgres-service") not in cmc_index
+    for resource in cmc_docs:
+        pod = None
+        if resource["kind"] in ("Deployment", "Rollout", "Job"):
+            pod = resource["spec"]["template"]["spec"]
+        elif resource["kind"] == "CronJob":
+            pod = resource["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+        if pod and any("odoo-" in container["image"] for container in
+                       pod.get("initContainers", []) + pod.get("containers", [])):
+            assert pod["imagePullSecrets"] == [{"name": "odoo-registry"}]
+    auth = cmc_index["TriggerAuthentication", "odoo-postgresql-auth"]
+    assert {item["parameter"] for item in auth["spec"]["secretTargetRef"]} == {
+        "host", "port", "dbName", "sslmode", "userName", "password"}
     runtime = cmc_index["ConfigMap", "odoo-runtime-settings"]["data"]
-    assert runtime["s3_required"] == "true"
-    assert runtime["s3_endpoint_url"].startswith("REPLACE_")
+    assert runtime["s3_required"] == "false"
     backup = cmc_index["CronJob", "odoo-disaster-recovery-backup"]
     backup_env = {item["name"]: item for item in
                   backup["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["env"]}
@@ -105,13 +129,28 @@ def main():
     assert backup_env["AWS_ACCESS_KEY_ID"]["valueFrom"]["secretKeyRef"]["name"] == "odoo-s3-credentials"
     sets.append(cmc_docs)
     infrastructure = render(ROOT / "overlays/cmc-infrastructure")
-    assert any(d["kind"] == "StatefulSet" and d["metadata"]["name"] == "apisix-etcd"
+    etcd = next(d for d in infrastructure if d["kind"] == "StatefulSet"
+                and d["metadata"]["name"] == "apisix-etcd")
+    assert etcd["spec"]["replicas"] == 3
+    assert any(d["kind"] == "PodDisruptionBudget" and d["metadata"]["name"] == "apisix-etcd"
                for d in infrastructure)
     applications = render(ROOT / "clusters/cmc")
     assert {d["metadata"]["name"] for d in applications} == {
         "odoo-cmc-infrastructure", "odoo-argo-rollouts", "odoo-keda",
         "odoo-apisix", "odoo-cmc"}
     assert all(d["spec"]["syncPolicy"]["automated"]["selfHeal"] for d in applications)
+    preflight = yaml.safe_load((ROOT / "bootstrap/odoo-dbaas-preflight.yaml").read_text(encoding="utf-8"))
+    assert preflight["spec"]["template"]["spec"]["containers"][0]["image"] == "postgres:16-alpine"
+    nfs_preflight = list(yaml.safe_load_all(
+        (ROOT / "bootstrap/odoo-nfs-preflight.yaml").read_text(encoding="utf-8")))
+    nfs_pvc = next(item for item in nfs_preflight if item["kind"] == "PersistentVolumeClaim")
+    nfs_job = next(item for item in nfs_preflight if item["kind"] == "Job")
+    assert nfs_pvc["metadata"]["name"] == "odoo-filestore-pvc"
+    assert nfs_pvc["spec"]["accessModes"] == ["ReadWriteMany"]
+    pod_spec = nfs_job["spec"]["template"]["spec"]
+    assert pod_spec["securityContext"]["runAsUser"] == 101
+    assert pod_spec["securityContext"]["runAsGroup"] == 101
+    assert pod_spec["securityContext"]["fsGroup"] == 101
     from cmc import artifacts, load_config
     cloud = artifacts(load_config(ROOT / 'cmc/config.example.yaml'))
     sets.extend([cloud['app.yaml'], cloud['infrastructure.yaml']])

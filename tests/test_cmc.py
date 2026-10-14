@@ -2,6 +2,7 @@
 import copy
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cmc
 from scripts.update_images import update
+from scripts.configure_cmc import configure
 
 
 class CloudTests(unittest.TestCase):
@@ -55,8 +57,9 @@ class CloudTests(unittest.TestCase):
             if doc['kind'] == 'CronJob':
                 self.assertTrue(doc['spec']['suspend'])
         self.assertTrue(any(d['kind'] == 'ApisixTls' for d in self.docs['app.yaml']))
-        endpoint = next(d for d in self.docs['app.yaml'] if d['kind'] == 'EndpointSlice')
-        self.assertEqual(endpoint['endpoints'][0]['addresses'], [self.config['database']['privateIp']])
+        self.assertFalse(any(d['kind'] == 'EndpointSlice' for d in self.docs['app.yaml']))
+        self.assertFalse(any(d['kind'] == 'Service' and d['metadata']['name'] == 'postgres-service'
+                             for d in self.docs['app.yaml']))
         settings = next(d for d in self.docs['app.yaml'] if d['kind'] == 'ConfigMap'
                         and d['metadata']['name'] == 'odoo-runtime-settings')
         self.assertEqual(settings['data']['s3_required'], 'true')
@@ -65,6 +68,10 @@ class CloudTests(unittest.TestCase):
                              for d in self.docs['app.yaml']))
         deny = next(d for d in self.docs['app.yaml'] if d['metadata']['name'] == 'odoo-deny-ingress')
         self.assertEqual(deny['spec']['ingress'], [])
+        analysis_policy = next(d for d in self.docs['app.yaml']
+                               if d['metadata']['name'] == 'odoo-web-from-rollouts-analysis')
+        namespace = analysis_policy['spec']['ingress'][0]['from'][0]['namespaceSelector']
+        self.assertEqual(namespace['matchLabels']['kubernetes.io/metadata.name'], 'argo-rollouts')
 
     def test_placeholders_rejected_before_cluster_access(self):
         with self.assertRaisesRegex(ValueError, 'placeholders'):
@@ -106,9 +113,11 @@ class CloudTests(unittest.TestCase):
                 {'type': 'Ready', 'status': 'True'}]}} for _ in range(2)]}
         if kind == 'secret' and name == self.config['tlsSecret']:
             return {'type': 'kubernetes.io/tls', 'data': {'tls.crt': 'fake', 'tls.key': 'fake'}}
-        if kind == 'secret' and name in ('odoo-secrets', 'odoo-s3-credentials'):
-            keys = ({'POSTGRES_USER', 'POSTGRES_PASSWORD', 'ADMIN_PASSWORD', 'ADMIN_LOGIN_PASSWORD'}
-                    if name == 'odoo-secrets' else {'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'})
+        if kind == 'secret' and name in self.config['imagePullSecrets']:
+            return {'type': 'kubernetes.io/dockerconfigjson', 'data': {'.dockerconfigjson': 'fake'}}
+        if kind == 'secret' and name in ('odoo-secrets', 'odoo-db-connection'):
+            keys = ({'ADMIN_PASSWORD', 'ADMIN_LOGIN_PASSWORD'} if name == 'odoo-secrets'
+                    else {'HOST', 'PORT', 'DATABASE', 'SSLMODE', 'USER', 'PASSWORD'})
             return {'type': 'Opaque', 'data': {key: 'fake' for key in keys}}
         return None
 
@@ -118,7 +127,7 @@ class CloudTests(unittest.TestCase):
             def get(kind, name=None, namespace=None):
                 if failure == 'storage' and kind == 'storageclass':
                     return None
-                if failure == 'secret' and kind == 'secret' and name == 'odoo-secrets':
+                if failure == 'secret' and kind == 'secret' and name == 'odoo-db-connection':
                     return None
                 return self.preflight_get(kind, name, namespace)
             with patch.object(cluster, 'kube', side_effect=[self.config['context'], json.dumps({
@@ -142,6 +151,25 @@ class CloudTests(unittest.TestCase):
             self.assertEqual({item['newName'] for item in images}, {
                 'docker.io/hgiang25/odoo-queue', 'docker.io/hgiang25/odoo-backup'})
             self.assertEqual({item['newTag'] for item in images}, {'sha-0123456789ab'})
+
+    def test_cmc_configuration_updates_only_non_secret_desired_state(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for relative in ('overlays/cmc/kustomization.yaml',
+                             'overlays/cmc/cloud-resources.yaml',
+                             'overlays/cmc-infrastructure/kustomization.yaml',
+                             'clusters/cmc/apisix.yaml'):
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(cmc.ROOT / relative, target)
+            configure('erp.example.vn', 'cmc-nfs-rwx', 'cmc-cinder-rwo', 'flavor-2', root)
+            combined = '\n'.join(path.read_text(encoding='utf-8') for path in root.rglob('*.yaml'))
+            for value in ('erp.example.vn', 'cmc-nfs-rwx', 'cmc-cinder-rwo', 'flavor-2'):
+                self.assertIn(value, combined)
+            self.assertNotIn('REPLACE_ODOO_DOMAIN', combined)
+            self.assertNotIn('REPLACE_CMC_RWX_STORAGE_CLASS', combined)
+            self.assertNotIn('REPLACE_CMC_BLOCK_STORAGE_CLASS', combined)
+            self.assertNotIn('REPLACE_CMC_ELB_FLAVOR_ID', combined)
 
 
 if __name__ == '__main__':
