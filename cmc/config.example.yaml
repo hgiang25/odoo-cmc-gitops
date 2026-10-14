@@ -7,13 +7,11 @@ kubernetesMinor: '1.32'
 images:
   odoo: docker.io/replace-dockerhub-user/odoo-queue:17.0-20261013
   backup: docker.io/replace-dockerhub-user/odoo-backup:15-20261013
-# Public Docker Hub repositories: []. Private repositories: [registry-credentials].
-imagePullSecrets: []
+# Bootstrap creates this from GitHub Secrets in the GitOps repository.
+imagePullSecrets: [odoo-registry]
 storage:
   blockClass: REPLACE_CMC_BLOCK_CLASS
-  sharedClass: REPLACE_RWX_NFS_CLASS
-database:
-  privateIp: 10.0.0.10
+  sharedClass: nfs-csi
 s3:
   endpointUrl: https://s3.hcm-5.cloud.cmctelecom.vn
   bucket: replace-odoo-backups

@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: odoo-canary-health
+  namespace: odoo-system
+  labels: {}
+spec:
+  metrics:
+  - name: odoo-http-and-database-health
+    interval: 20s
+    count: 3
+    failureLimit: 1
+    successCondition: result == "pass"
+    provider:
+      web:
+        url: http://odoo-web-canary.odoo-system.svc.cluster.local:8069/web/health?db_server_status=1
+        timeoutSeconds: 10
+        jsonPath: "{$.status}"

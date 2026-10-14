@@ -1,7 +1,6 @@
 """CMC manifest renderer and read-only preflight for the Argo CD deployment."""
 import argparse
 import copy
-import ipaddress
 import json
 from pathlib import Path
 import re
@@ -31,7 +30,7 @@ def run(args, data=None):
 def load_config(path, live=False):
     config = yaml.safe_load(Path(path).read_text(encoding='utf-8'))
     required = {'context', 'domain', 'kubernetesMinor', 'images', 'imagePullSecrets',
-                'storage', 'database', 's3', 'tlsSecret', 'loadBalancerAnnotations',
+                'storage', 's3', 'tlsSecret', 'loadBalancerAnnotations',
                 'backupScheduleEnabled'}
     if not isinstance(config, dict) or set(config) != required:
         raise ValueError(f'Config keys must be exactly: {sorted(required)}')
@@ -58,12 +57,6 @@ def load_config(path, live=False):
             raise ValueError('Cloud images need a release tag or digest, not latest/local lab tags')
     if set(config['storage']) != {'blockClass', 'sharedClass'}:
         raise ValueError('storage must specify blockClass and sharedClass')
-    if set(config['database']) != {'privateIp'}:
-        raise ValueError('database must specify the CMC DBaaS privateIp')
-    try:
-        ipaddress.ip_address(config['database']['privateIp'])
-    except ValueError as error:
-        raise ValueError('database.privateIp must be an IPv4 or IPv6 address') from error
     if set(config['s3']) != {'endpointUrl', 'bucket', 'prefix', 'region'}:
         raise ValueError('s3 must specify endpointUrl, bucket, prefix and region')
     if not re.fullmatch(r'https://[^/]+', config['s3']['endpointUrl']):
@@ -119,9 +112,6 @@ def transform(docs, config):
                     'labelSelector': {'matchLabels': {'app': 'odoo', 'component': 'web'}}}]
         if doc['kind'] == 'PersistentVolumeClaim':
             doc['spec']['storageClassName'] = config['storage']['sharedClass']
-        if doc['kind'] == 'EndpointSlice' and doc['metadata']['name'] == 'postgres-service-dbaas':
-            doc['addressType'] = 'IPv6' if ':' in config['database']['privateIp'] else 'IPv4'
-            doc['endpoints'][0]['addresses'] = [config['database']['privateIp']]
         if doc['kind'] == 'ConfigMap' and doc['metadata']['name'] == 'odoo-runtime-settings':
             doc['data'].update({'s3_required': 'true', 's3_endpoint_url': config['s3']['endpointUrl'],
                 's3_bucket': config['s3']['bucket'], 's3_prefix': config['s3']['prefix'],
@@ -165,8 +155,7 @@ def artifacts(config):
     init = transform([yaml.safe_load((ROOT / 'base/12-init-db.yaml').read_text())], config)
     restore = transform([yaml.safe_load((ROOT / 'dr/restore-job.yaml').read_text())], config)
     return {'app.yaml': app, 'data.yaml': [d for d in app if d['kind'] in (
-        'PersistentVolumeClaim', 'ConfigMap', 'EndpointSlice') or
-        (d['kind'] == 'Service' and d['metadata']['name'] == 'postgres-service')],
+        'PersistentVolumeClaim', 'ConfigMap')],
         'init-db.yaml': init, 'restore-job.yaml': restore, 'infrastructure.yaml': infrastructure,
         'apisix-values.yaml': [values]}
 
@@ -237,9 +226,8 @@ class Cluster:
             if rollout and rollout.get('status', {}).get('phase') != 'Healthy':
                 raise ValueError('Existing Rollout must be Healthy before deploy')
         required_secrets = {
-            'odoo-secrets': {'POSTGRES_USER', 'POSTGRES_PASSWORD', 'ADMIN_PASSWORD',
-                             'ADMIN_LOGIN_PASSWORD'},
-            'odoo-s3-credentials': {'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'},
+            'odoo-secrets': {'ADMIN_PASSWORD', 'ADMIN_LOGIN_PASSWORD'},
+            'odoo-db-connection': {'HOST', 'PORT', 'DATABASE', 'SSLMODE', 'USER', 'PASSWORD'},
         }
         for name, keys in required_secrets.items():
             secret = self.get('secret', name, 'odoo-system')

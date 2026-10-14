@@ -4,7 +4,6 @@ namespace: odoo-system
 resources:
 - ../../base
 - cloud-resources.yaml
-- dbaas-endpoint.yaml
 
 generatorOptions:
   disableNameSuffixHash: true
@@ -17,10 +16,9 @@ configMapGenerator:
   namespace: odoo-system
   behavior: merge
   literals:
-  - db_sslmode=prefer
-  - s3_required=true
-  - s3_endpoint_url=REPLACE_CMC_S3_ENDPOINT_URL
-  - s3_bucket=REPLACE_CMC_S3_BUCKET
+  - s3_required=false
+  - s3_endpoint_url=
+  - s3_bucket=
   - s3_prefix=odoo/backups
   - aws_region=us-east-1
 
@@ -33,7 +31,9 @@ images:
   newTag: REPLACE_IMAGE_TAG
 
 patches:
-- path: delete-in-cluster-postgres.yaml
+- path: delete-postgres-statefulset.yaml
+- path: delete-postgres-pvc.yaml
+- path: delete-postgres-service.yaml
 - target:
     kind: Namespace
     name: odoo-system
@@ -68,15 +68,35 @@ patches:
       value:
         argocd.argoproj.io/sync-wave: "-20"
 - target:
-    kind: Service
-    name: postgres-service
+    kind: Deployment
   patch: |-
     - op: add
-      path: /metadata/annotations
+      path: /spec/template/spec/imagePullSecrets
       value:
-        argocd.argoproj.io/sync-wave: "-20"
-    - op: remove
-      path: /spec/selector
+      - name: odoo-registry
+- target:
+    group: argoproj.io
+    version: v1alpha1
+    kind: Rollout
+  patch: |-
+    - op: add
+      path: /spec/template/spec/imagePullSecrets
+      value:
+      - name: odoo-registry
+- target:
+    kind: Job
+  patch: |-
+    - op: add
+      path: /spec/template/spec/imagePullSecrets
+      value:
+      - name: odoo-registry
+- target:
+    kind: CronJob
+  patch: |-
+    - op: add
+      path: /spec/jobTemplate/spec/template/spec/imagePullSecrets
+      value:
+      - name: odoo-registry
 - target:
     kind: Job
     name: odoo-init-db

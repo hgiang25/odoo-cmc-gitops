@@ -12,6 +12,7 @@ resources:
 - 08-apisix-gateway.yaml
 - 09-keda-autoscaling.yaml
 - 10-argo-rollout.yaml
+- 10-canary-analysis.yaml
 - backup-rbac.yaml
 - 11-backup-cronjob.yaml
 - 12-init-db.yaml

@@ -26,9 +26,15 @@ spec:
             - websocket
       steps:
       - setWeight: 20
+      - analysis:
+          templates:
+          - templateName: odoo-canary-health
       - pause:
           duration: 5m
       - setWeight: 50
+      - analysis:
+          templates:
+          - templateName: odoo-canary-health
       - pause:
           duration: 10m
       - setWeight: 100
@@ -62,9 +68,14 @@ spec:
               key: ADMIN_PASSWORD
         - name: ODOO_DB_SSLMODE
           valueFrom:
-            configMapKeyRef:
-              name: odoo-runtime-settings
-              key: db_sslmode
+            secretKeyRef:
+              name: odoo-db-connection
+              key: SSLMODE
+        - name: ODOO_DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: odoo-db-connection
+              key: DATABASE
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -96,19 +107,25 @@ spec:
         - --workers=2
         env:
         - name: HOST
-          value: postgres-service
+          valueFrom:
+            secretKeyRef:
+              name: odoo-db-connection
+              key: HOST
         - name: PORT
-          value: '5432'
+          valueFrom:
+            secretKeyRef:
+              name: odoo-db-connection
+              key: PORT
         - name: USER
           valueFrom:
             secretKeyRef:
-              name: odoo-secrets
-              key: POSTGRES_USER
+              name: odoo-db-connection
+              key: USER
         - name: PASSWORD
           valueFrom:
             secretKeyRef:
-              name: odoo-secrets
-              key: POSTGRES_PASSWORD
+              name: odoo-db-connection
+              key: PASSWORD
         - name: ODOO_QUEUE_JOB_CHANNELS
           value: root:0
         securityContext:

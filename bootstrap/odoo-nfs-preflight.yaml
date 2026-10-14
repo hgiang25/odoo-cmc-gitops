@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odoo-filestore-pvc
+  namespace: odoo-system
+spec:
+  accessModes:
+  - ReadWriteMany
+  storageClassName: nfs-csi
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: odoo-nfs-preflight
+  namespace: odoo-system
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: odoo
+        component: nfs-preflight
+    spec:
+      restartPolicy: Never
+      imagePullSecrets:
+      - name: odoo-registry
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: nfs-preflight
+        image: busybox:1.36
+        command:
+        - sh
+        - -ceu
+        - |
+          test "$(id -u)" = 101
+          test "$(id -g)" = 101
+          marker="/var/lib/odoo/.nfs-preflight-${HOSTNAME}"
+          printf '%s\n' "$HOSTNAME" > "$marker"
+          test "$(cat "$marker")" = "$HOSTNAME"
+          rm -f "$marker"
+          echo 'NFS RWX write preflight passed for UID/GID 101.'
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: filestore
+          mountPath: /var/lib/odoo
+      volumes:
+      - name: filestore
+        persistentVolumeClaim:
+          claimName: odoo-filestore-pvc

@@ -16,6 +16,15 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: odoo-system
+  ignoreDifferences:
+  - group: apps
+    kind: Deployment
+    jqPathExpressions:
+    - .spec.template.metadata.annotations."kubectl.kubernetes.io/restartedAt"
+  - group: argoproj.io
+    kind: Rollout
+    jsonPointers:
+    - /spec/restartAt
   syncPolicy:
     automated:
       prune: true

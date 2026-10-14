@@ -31,12 +31,24 @@ metadata:
   labels: {}
 spec:
   secretTargetRef:
+  - parameter: host
+    name: odoo-db-connection
+    key: HOST
+  - parameter: port
+    name: odoo-db-connection
+    key: PORT
+  - parameter: dbName
+    name: odoo-db-connection
+    key: DATABASE
+  - parameter: sslmode
+    name: odoo-db-connection
+    key: SSLMODE
   - parameter: userName
-    name: odoo-secrets
-    key: POSTGRES_USER
+    name: odoo-db-connection
+    key: USER
   - parameter: password
-    name: odoo-secrets
-    key: POSTGRES_PASSWORD
+    name: odoo-db-connection
+    key: PASSWORD
 ---
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
@@ -62,10 +74,6 @@ spec:
     authenticationRef:
       name: odoo-postgresql-auth
     metadata:
-      host: postgres-service.odoo-system.svc.cluster.local
-      port: '5432'
-      dbName: odoo17_dev
-      sslmode: disable
       query: SELECT count(*) FROM queue_job WHERE state IN ('pending', 'enqueued',
         'started')
       targetQueryValue: '2'

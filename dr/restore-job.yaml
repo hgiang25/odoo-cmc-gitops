@@ -27,24 +27,27 @@ spec:
         - /opt/backup/restore.py
         env:
         - name: PGHOST
-          value: postgres-service
+          valueFrom:
+            secretKeyRef:
+              name: odoo-db-connection
+              key: HOST
         - name: PGDATABASE
           value: odoo17_dev
         - name: PGUSER
           valueFrom:
             secretKeyRef:
-              name: odoo-secrets
-              key: POSTGRES_USER
+              name: odoo-db-connection
+              key: USER
         - name: PGPASSWORD
           valueFrom:
             secretKeyRef:
-              name: odoo-secrets
-              key: POSTGRES_PASSWORD
+              name: odoo-db-connection
+              key: PASSWORD
         - name: PGSSLMODE
           valueFrom:
-            configMapKeyRef:
-              name: odoo-runtime-settings
-              key: db_sslmode
+            secretKeyRef:
+              name: odoo-db-connection
+              key: SSLMODE
         - name: S3_ENDPOINT_URL
           valueFrom:
             configMapKeyRef:

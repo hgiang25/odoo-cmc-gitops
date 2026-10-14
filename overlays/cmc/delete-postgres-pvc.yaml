@@ -1,10 +1,3 @@
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: postgres
-  namespace: odoo-system
-$patch: delete
----
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

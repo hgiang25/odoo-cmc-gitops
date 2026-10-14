@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [switch]$ValidateOnly,
-    [switch]$SkipImageBuild
+    [switch]$SkipImageBuild,
+    [string]$AppRepo = (Join-Path $PSScriptRoot '..\odoo')
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -68,14 +69,30 @@ if ($Namespace) {
 }
 
 if (-not $SkipImageBuild) {
-    Invoke-Checked 'docker' @('build', '-t', 'odoo-queue:17.0-lab', (Join-Path $Root 'image'))
-    Invoke-Checked 'docker' @('build', '-t', 'odoo-backup:15-lab', (Join-Path $Root 'backup'))
+    $AppRepo = (Resolve-Path -LiteralPath $AppRepo -ErrorAction Stop).Path
+    Invoke-Checked 'docker' @('build', '-f', (Join-Path $AppRepo 'docker/odoo/Dockerfile'),
+        '-t', 'odoo-queue:17.0-lab', $AppRepo)
+    Invoke-Checked 'docker' @('build', '-t', 'odoo-backup:15-lab', (Join-Path $AppRepo 'docker/backup'))
 }
 Invoke-Kube @('apply', '-f', (Join-Path $Root 'base/00-namespace.yaml'))
 Apply-Object @{apiVersion='v1';kind='Namespace';metadata=@{name='apisix'}}
+$DbUser = 'odoo'
+$DbPassword = New-RandomPassword
+$LegacySecret = & kubectl --context $Context -n odoo-system get secret odoo-secrets --ignore-not-found -o json
+if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect the legacy database Secret.' }
+if ($LegacySecret) {
+    $LegacyData = ($LegacySecret | ConvertFrom-Json).data
+    if ($LegacyData.PSObject.Properties['POSTGRES_USER'] -and $LegacyData.PSObject.Properties['POSTGRES_PASSWORD']) {
+        $DbUser = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($LegacyData.POSTGRES_USER))
+        $DbPassword = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($LegacyData.POSTGRES_PASSWORD))
+    }
+}
 Ensure-Secret 'odoo-system' 'odoo-secrets' @{
-    POSTGRES_USER='odoo';POSTGRES_PASSWORD=(New-RandomPassword)
     ADMIN_PASSWORD=(New-RandomPassword);ADMIN_LOGIN_PASSWORD=(New-RandomPassword)
+}
+Ensure-Secret 'odoo-system' 'odoo-db-connection' @{
+    HOST='postgres-service';PORT='5432';DATABASE='odoo17_dev';SSLMODE='prefer'
+    USER=$DbUser;PASSWORD=$DbPassword
 }
 Ensure-Secret 'apisix' 'apisix-admin-credentials' @{admin=(New-RandomPassword);viewer=(New-RandomPassword)}
 Invoke-Kube @('apply', '-f', (Join-Path $Root 'infrastructure/etcd.yaml'))

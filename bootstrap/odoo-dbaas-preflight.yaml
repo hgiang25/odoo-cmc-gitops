@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: odoo-dbaas-preflight
+  namespace: odoo-system
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 150
+  template:
+    metadata:
+      labels:
+        app: odoo
+        component: dbaas-preflight
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: postgres-client
+        image: postgres:16-alpine
+        command:
+        - /bin/sh
+        - -ec
+        - |
+          version="$(psql -X -At -d postgres -c 'SHOW server_version_num')"
+          case "$version" in
+            16*) echo "PostgreSQL 16 connectivity verified." ;;
+            *) echo "Expected PostgreSQL 16, received server_version_num=$version" >&2; exit 1 ;;
+          esac
+        env:
+        - name: PGHOST
+          valueFrom:
+            secretKeyRef:
+              name: odoo-db-connection
+              key: HOST
+        - name: PGPORT
+          valueFrom:
+            secretKeyRef:
+              name: odoo-db-connection
+              key: PORT
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: odoo-db-connection
+              key: USER
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: odoo-db-connection
+              key: PASSWORD
+        - name: PGSSLMODE
+          valueFrom:
+            secretKeyRef:
+              name: odoo-db-connection
+              key: SSLMODE
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 25m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
