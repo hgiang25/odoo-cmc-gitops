@@ -83,8 +83,9 @@ GitHub Variables có mặc định:
   chỉ cần tạo Variable này nếu sau đó đổi tên StorageClass.
 - `CMC_POSTGRES_PORT`: mặc định `5432`.
 - `CMC_POSTGRES_DATABASE`: mặc định `odoo17_prod`.
-- `CMC_POSTGRES_SSLMODE`: mặc định `require`; cho phép `require`, `verify-ca`,
-  `verify-full`.
+- `CMC_POSTGRES_SSLMODE`: mặc định `disable` cho private endpoint DBaaS hiện tại đã xác nhận
+  không hỗ trợ TLS; cho phép `disable`, `require`, `verify-ca`, `verify-full`. Khi dùng
+  `disable`, phải giới hạn Security Group TCP 5432 cho đúng worker/node CIDR.
 
 GitHub Secrets bắt buộc:
 

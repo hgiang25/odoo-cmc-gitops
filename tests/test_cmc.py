@@ -171,6 +171,13 @@ class CloudTests(unittest.TestCase):
             self.assertNotIn('REPLACE_CMC_BLOCK_STORAGE_CLASS', combined)
             self.assertNotIn('REPLACE_CMC_ELB_FLAVOR_ID', combined)
 
+    def test_bootstrap_requires_an_explicit_postgres_tls_policy(self):
+        source = (cmc.ROOT / '.github/workflows/bootstrap-argocd.yml').read_text(
+            encoding='utf-8')
+        self.assertIn("vars.CMC_POSTGRES_SSLMODE || 'disable'", source)
+        self.assertIn('^(disable|require|verify-ca|verify-full)$', source)
+        self.assertNotIn('^(disable|allow|prefer|require|verify-ca|verify-full)$', source)
+
 
 if __name__ == '__main__':
     unittest.main()

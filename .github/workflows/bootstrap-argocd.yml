@@ -20,7 +20,7 @@ jobs:
       CMC_POSTGRES_HOST: ${{ vars.CMC_POSTGRES_HOST }}
       CMC_POSTGRES_PORT: ${{ vars.CMC_POSTGRES_PORT || '5432' }}
       CMC_POSTGRES_DATABASE: ${{ vars.CMC_POSTGRES_DATABASE || 'odoo17_prod' }}
-      CMC_POSTGRES_SSLMODE: ${{ vars.CMC_POSTGRES_SSLMODE || 'require' }}
+      CMC_POSTGRES_SSLMODE: ${{ vars.CMC_POSTGRES_SSLMODE || 'disable' }}
       CMC_POSTGRES_USER: ${{ secrets.CMC_POSTGRES_USER }}
       CMC_POSTGRES_PASSWORD: ${{ secrets.CMC_POSTGRES_PASSWORD }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -30,185 +30,185 @@ jobs:
       CMC_TLS_CERTIFICATE: ${{ secrets.CMC_TLS_CERTIFICATE }}
       CMC_TLS_PRIVATE_KEY: ${{ secrets.CMC_TLS_PRIVATE_KEY }}
     steps:
-    - uses: actions/checkout@v4
-    - name: Verify bastion tools, context, and committed configuration
-      shell: bash
-      run: |
-        set -euo pipefail
-        command -v kubectl
-        command -v helm
-        command -v openssl
-        test -n "$KUBE_CONTEXT"
-        [[ "$CMC_RWX_STORAGE_CLASS" =~ ^[a-z0-9][a-z0-9._-]{0,251}[a-z0-9]$ ]]
-        test -n "$CMC_POSTGRES_HOST"
-        [[ "$CMC_POSTGRES_PORT" =~ ^[0-9]{1,5}$ ]]
-        [[ "$CMC_POSTGRES_DATABASE" =~ ^[a-z][a-z0-9_]{0,62}$ ]]
-        [[ "$CMC_POSTGRES_SSLMODE" =~ ^(require|verify-ca|verify-full)$ ]]
-        test -n "$CMC_POSTGRES_USER"
-        test -n "$CMC_POSTGRES_PASSWORD"
-        test -n "$DOCKERHUB_USERNAME"
-        test -n "$DOCKERHUB_TOKEN"
-        test -n "$CMC_TLS_CERTIFICATE"
-        test -n "$CMC_TLS_PRIVATE_KEY"
-        kubectl config get-contexts -o name | grep -Fx -- "$KUBE_CONTEXT"
-        kubectl --context "$KUBE_CONTEXT" cluster-info
-        kubectl --context "$KUBE_CONTEXT" get storageclass "$CMC_RWX_STORAGE_CLASS"
-        if ! grep -Fq "value: $CMC_RWX_STORAGE_CLASS" overlays/cmc/kustomization.yaml; then
-          echo "Committed CMC overlay does not use RWX StorageClass $CMC_RWX_STORAGE_CLASS." >&2
-          echo 'Run Configure CMC desired state after updating the GitHub Variable.' >&2
-          exit 1
-        fi
-        if grep -R "REPLACE_" overlays/cmc overlays/cmc-infrastructure clusters/cmc; then
-          echo "Replace every CMC placeholder in Git before bootstrap."
-          exit 1
-        fi
-    - name: Create namespaces and generated runtime secrets
-      shell: bash
-      run: |
-        set -euo pipefail
-        for namespace in argocd apisix odoo-system; do
-          kubectl --context "$KUBE_CONTEXT" create namespace "$namespace" --dry-run=client -o yaml |
-            kubectl --context "$KUBE_CONTEXT" apply -f -
-        done
-        if ! kubectl --context "$KUBE_CONTEXT" -n apisix get secret apisix-admin-credentials >/dev/null 2>&1; then
-          kubectl --context "$KUBE_CONTEXT" -n apisix create secret generic apisix-admin-credentials \
-            --from-literal=admin="$(openssl rand -base64 36)" \
-            --from-literal=viewer="$(openssl rand -base64 36)"
-        fi
-        if ! kubectl --context "$KUBE_CONTEXT" -n odoo-system get secret odoo-secrets >/dev/null 2>&1; then
-          if kubectl --context "$KUBE_CONTEXT" -n odoo-system get pvc postgres-pvc >/dev/null 2>&1; then
-            echo "postgres-pvc exists but odoo-secrets is missing; restore the original Secret."
+      - uses: actions/checkout@v4
+      - name: Verify bastion tools, context, and committed configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v kubectl
+          command -v helm
+          command -v openssl
+          test -n "$KUBE_CONTEXT"
+          [[ "$CMC_RWX_STORAGE_CLASS" =~ ^[a-z0-9][a-z0-9._-]{0,251}[a-z0-9]$ ]]
+          test -n "$CMC_POSTGRES_HOST"
+          [[ "$CMC_POSTGRES_PORT" =~ ^[0-9]{1,5}$ ]]
+          [[ "$CMC_POSTGRES_DATABASE" =~ ^[a-z][a-z0-9_]{0,62}$ ]]
+          [[ "$CMC_POSTGRES_SSLMODE" =~ ^(disable|require|verify-ca|verify-full)$ ]]
+          test -n "$CMC_POSTGRES_USER"
+          test -n "$CMC_POSTGRES_PASSWORD"
+          test -n "$DOCKERHUB_USERNAME"
+          test -n "$DOCKERHUB_TOKEN"
+          test -n "$CMC_TLS_CERTIFICATE"
+          test -n "$CMC_TLS_PRIVATE_KEY"
+          kubectl config get-contexts -o name | grep -Fx -- "$KUBE_CONTEXT"
+          kubectl --context "$KUBE_CONTEXT" cluster-info
+          kubectl --context "$KUBE_CONTEXT" get storageclass "$CMC_RWX_STORAGE_CLASS"
+          if ! grep -Fq "value: $CMC_RWX_STORAGE_CLASS" overlays/cmc/kustomization.yaml; then
+            echo "Committed CMC overlay does not use RWX StorageClass $CMC_RWX_STORAGE_CLASS." >&2
+            echo 'Run Configure CMC desired state after updating the GitHub Variable.' >&2
             exit 1
           fi
-          kubectl --context "$KUBE_CONTEXT" -n odoo-system create secret generic odoo-secrets \
-            --from-literal=ADMIN_PASSWORD="$(openssl rand -base64 36)" \
-            --from-literal=ADMIN_LOGIN_PASSWORD="$(openssl rand -base64 24)"
-        fi
-        kubectl --context "$KUBE_CONTEXT" -n odoo-system create secret generic odoo-db-connection \
-          --from-literal=HOST="$CMC_POSTGRES_HOST" \
-          --from-literal=PORT="$CMC_POSTGRES_PORT" \
-          --from-literal=DATABASE="$CMC_POSTGRES_DATABASE" \
-          --from-literal=SSLMODE="$CMC_POSTGRES_SSLMODE" \
-          --from-literal=USER="$CMC_POSTGRES_USER" \
-          --from-literal=PASSWORD="$CMC_POSTGRES_PASSWORD" \
-          --dry-run=client -o yaml | kubectl --context "$KUBE_CONTEXT" apply -f -
-        kubectl --context "$KUBE_CONTEXT" -n odoo-system create secret docker-registry odoo-registry \
-          --docker-server=docker.io \
-          --docker-username="$DOCKERHUB_USERNAME" \
-          --docker-password="$DOCKERHUB_TOKEN" \
-          --dry-run=client -o yaml | kubectl --context "$KUBE_CONTEXT" apply -f -
-        if [ -n "$CMC_S3_ACCESS_KEY_ID" ] || [ -n "$CMC_S3_SECRET_ACCESS_KEY" ]; then
-          test -n "$CMC_S3_ACCESS_KEY_ID"
-          test -n "$CMC_S3_SECRET_ACCESS_KEY"
-          kubectl --context "$KUBE_CONTEXT" -n odoo-system create secret generic odoo-s3-credentials \
-            --from-literal=AWS_ACCESS_KEY_ID="$CMC_S3_ACCESS_KEY_ID" \
-            --from-literal=AWS_SECRET_ACCESS_KEY="$CMC_S3_SECRET_ACCESS_KEY" \
-            --dry-run=client -o yaml | kubectl --context "$KUBE_CONTEXT" apply -f -
-        fi
-        tls_dir="$(mktemp -d)"
-        trap 'rm -rf "$tls_dir"' EXIT
-        printf '%s' "$CMC_TLS_CERTIFICATE" > "$tls_dir/tls.crt"
-        printf '%s' "$CMC_TLS_PRIVATE_KEY" > "$tls_dir/tls.key"
-        kubectl --context "$KUBE_CONTEXT" -n odoo-system create secret tls odoo-tls \
-          --cert="$tls_dir/tls.crt" --key="$tls_dir/tls.key" \
-          --dry-run=client -o yaml | kubectl --context "$KUBE_CONTEXT" apply -f -
-        for key in admin viewer; do
-          test -n "$(kubectl --context "$KUBE_CONTEXT" -n apisix get secret apisix-admin-credentials -o "jsonpath={.data.$key}")"
-        done
-        for key in ADMIN_PASSWORD ADMIN_LOGIN_PASSWORD; do
-          test -n "$(kubectl --context "$KUBE_CONTEXT" -n odoo-system get secret odoo-secrets -o "jsonpath={.data.$key}")"
-        done
-        for key in HOST PORT DATABASE SSLMODE USER PASSWORD; do
-          test -n "$(kubectl --context "$KUBE_CONTEXT" -n odoo-system get secret odoo-db-connection -o "jsonpath={.data.$key}")"
-        done
-        if kubectl --context "$KUBE_CONTEXT" -n odoo-system get pvc postgres-pvc >/dev/null 2>&1; then
-          echo "Legacy in-cluster postgres-pvc exists. Migrate and verify it in DBaaS before GitOps pruning."
-          exit 1
-        fi
-        kubectl --context "$KUBE_CONTEXT" -n odoo-system get secret odoo-tls -o jsonpath='{.data.tls\.crt}' | grep -q .
-    - name: Verify NFS RWX write access as Odoo UID 101
-      shell: bash
-      run: |
-        set -euo pipefail
-        existing_class="$(kubectl --context "$KUBE_CONTEXT" -n odoo-system get pvc odoo-filestore-pvc \
-          -o jsonpath='{.spec.storageClassName}' 2>/dev/null || true)"
-        if [ -n "$existing_class" ] && [ "$existing_class" != "$CMC_RWX_STORAGE_CLASS" ]; then
-          echo "odoo-filestore-pvc already uses StorageClass $existing_class; expected $CMC_RWX_STORAGE_CLASS." >&2
-          exit 1
-        fi
-        kubectl --context "$KUBE_CONTEXT" -n odoo-system delete job odoo-nfs-preflight \
-          --ignore-not-found --wait=true
-        sed "s/storageClassName: nfs-csi/storageClassName: $CMC_RWX_STORAGE_CLASS/" \
-          bootstrap/odoo-nfs-preflight.yaml | kubectl --context "$KUBE_CONTEXT" apply -f -
-        if ! kubectl --context "$KUBE_CONTEXT" -n odoo-system wait \
-          --for=jsonpath='{.status.phase}'=Bound pvc/odoo-filestore-pvc --timeout=180s; then
-          kubectl --context "$KUBE_CONTEXT" -n odoo-system describe pvc odoo-filestore-pvc || true
-          exit 1
-        fi
-        if ! kubectl --context "$KUBE_CONTEXT" -n odoo-system wait \
-          --for=condition=complete job/odoo-nfs-preflight --timeout=180s; then
-          kubectl --context "$KUBE_CONTEXT" -n odoo-system logs job/odoo-nfs-preflight || true
-          kubectl --context "$KUBE_CONTEXT" -n odoo-system describe job odoo-nfs-preflight || true
-          kubectl --context "$KUBE_CONTEXT" -n odoo-system get pods -l component=nfs-preflight -o wide || true
-          echo 'NFS must allow UID/GID 101 to write. Check root_squash, anonuid/anongid, and PVC directory ownership.' >&2
-          exit 1
-        fi
-        kubectl --context "$KUBE_CONTEXT" -n odoo-system logs job/odoo-nfs-preflight
-        kubectl --context "$KUBE_CONTEXT" -n odoo-system delete job odoo-nfs-preflight --wait=true
-    - name: Verify PostgreSQL 16 from inside the cluster
-      shell: bash
-      run: |
-        set -euo pipefail
-        kubectl --context "$KUBE_CONTEXT" -n odoo-system delete job odoo-dbaas-preflight --ignore-not-found --wait=true
-        kubectl --context "$KUBE_CONTEXT" apply -f bootstrap/odoo-dbaas-preflight.yaml
-        if ! kubectl --context "$KUBE_CONTEXT" -n odoo-system wait --for=condition=complete job/odoo-dbaas-preflight --timeout=180s; then
-          kubectl --context "$KUBE_CONTEXT" -n odoo-system logs job/odoo-dbaas-preflight || true
-          exit 1
-        fi
-        kubectl --context "$KUBE_CONTEXT" -n odoo-system logs job/odoo-dbaas-preflight
-        kubectl --context "$KUBE_CONTEXT" -n odoo-system delete job odoo-dbaas-preflight --wait=true
-    - name: Install Argo CD via Helm
-      shell: bash
-      run: |
-        set -euo pipefail
-        helm --kube-context "$KUBE_CONTEXT" upgrade --install argocd argo-cd \
-          --repo https://argoproj.github.io/argo-helm \
-          --version "$ARGOCD_CHART_VERSION" \
-          --namespace argocd \
-          --wait --timeout 10m
-    - name: Wait for Argo CD controllers to be fully ready
-      shell: bash
-      run: |
-        set -euo pipefail
-        echo "Waiting for argocd-server..."
-        kubectl --context "$KUBE_CONTEXT" -n argocd rollout status deployment/argocd-server --timeout=300s
-        echo "Waiting for argocd-repo-server..."
-        kubectl --context "$KUBE_CONTEXT" -n argocd rollout status deployment/argocd-repo-server --timeout=300s
-        echo "Waiting for argocd-application-controller..."
-        kubectl --context "$KUBE_CONTEXT" -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
-        echo "All Argo CD components are ready."
-    - name: Register the AppProject and root Application
-      shell: bash
-      run: |
-        set -euo pipefail
-        kubectl --context "$KUBE_CONTEXT" apply -f bootstrap/odoo-cmc-project.yaml
-        kubectl --context "$KUBE_CONTEXT" apply -f bootstrap/odoo-cmc-root.yaml
-        echo "Root application registered. Argo CD will now reconcile all child applications."
-        kubectl --context "$KUBE_CONTEXT" -n argocd get applications.argoproj.io
-    - name: Restart existing Odoo workloads after runtime Secret reconciliation
-      shell: bash
-      run: |
-        set -euo pipefail
-        if kubectl --context "$KUBE_CONTEXT" -n odoo-system get rollout odoo-web-rollout >/dev/null 2>&1; then
-          restart_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          kubectl --context "$KUBE_CONTEXT" -n odoo-system patch rollout odoo-web-rollout \
-            --type=merge --patch "{\"spec\":{\"restartAt\":\"$restart_at\"}}"
-          for deployment in odoo-worker odoo-cron odoo-queue-runner; do
-            kubectl --context "$KUBE_CONTEXT" -n odoo-system rollout restart "deployment/$deployment"
-            kubectl --context "$KUBE_CONTEXT" -n odoo-system rollout status "deployment/$deployment" --timeout=600s
+          if grep -R "REPLACE_" overlays/cmc overlays/cmc-infrastructure clusters/cmc; then
+            echo "Replace every CMC placeholder in Git before bootstrap."
+            exit 1
+          fi
+      - name: Create namespaces and generated runtime secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for namespace in argocd apisix odoo-system; do
+            kubectl --context "$KUBE_CONTEXT" create namespace "$namespace" --dry-run=client -o yaml |
+              kubectl --context "$KUBE_CONTEXT" apply -f -
           done
-          kubectl --context "$KUBE_CONTEXT" -n odoo-system wait \
-            --for=jsonpath='{.status.phase}'=Healthy rollout/odoo-web-rollout --timeout=1200s
-        else
-          echo 'No existing Odoo Rollout; first Argo reconciliation will consume the new Secrets.'
-        fi
+          if ! kubectl --context "$KUBE_CONTEXT" -n apisix get secret apisix-admin-credentials >/dev/null 2>&1; then
+            kubectl --context "$KUBE_CONTEXT" -n apisix create secret generic apisix-admin-credentials \
+              --from-literal=admin="$(openssl rand -base64 36)" \
+              --from-literal=viewer="$(openssl rand -base64 36)"
+          fi
+          if ! kubectl --context "$KUBE_CONTEXT" -n odoo-system get secret odoo-secrets >/dev/null 2>&1; then
+            if kubectl --context "$KUBE_CONTEXT" -n odoo-system get pvc postgres-pvc >/dev/null 2>&1; then
+              echo "postgres-pvc exists but odoo-secrets is missing; restore the original Secret."
+              exit 1
+            fi
+            kubectl --context "$KUBE_CONTEXT" -n odoo-system create secret generic odoo-secrets \
+              --from-literal=ADMIN_PASSWORD="$(openssl rand -base64 36)" \
+              --from-literal=ADMIN_LOGIN_PASSWORD="$(openssl rand -base64 24)"
+          fi
+          kubectl --context "$KUBE_CONTEXT" -n odoo-system create secret generic odoo-db-connection \
+            --from-literal=HOST="$CMC_POSTGRES_HOST" \
+            --from-literal=PORT="$CMC_POSTGRES_PORT" \
+            --from-literal=DATABASE="$CMC_POSTGRES_DATABASE" \
+            --from-literal=SSLMODE="$CMC_POSTGRES_SSLMODE" \
+            --from-literal=USER="$CMC_POSTGRES_USER" \
+            --from-literal=PASSWORD="$CMC_POSTGRES_PASSWORD" \
+            --dry-run=client -o yaml | kubectl --context "$KUBE_CONTEXT" apply -f -
+          kubectl --context "$KUBE_CONTEXT" -n odoo-system create secret docker-registry odoo-registry \
+            --docker-server=docker.io \
+            --docker-username="$DOCKERHUB_USERNAME" \
+            --docker-password="$DOCKERHUB_TOKEN" \
+            --dry-run=client -o yaml | kubectl --context "$KUBE_CONTEXT" apply -f -
+          if [ -n "$CMC_S3_ACCESS_KEY_ID" ] || [ -n "$CMC_S3_SECRET_ACCESS_KEY" ]; then
+            test -n "$CMC_S3_ACCESS_KEY_ID"
+            test -n "$CMC_S3_SECRET_ACCESS_KEY"
+            kubectl --context "$KUBE_CONTEXT" -n odoo-system create secret generic odoo-s3-credentials \
+              --from-literal=AWS_ACCESS_KEY_ID="$CMC_S3_ACCESS_KEY_ID" \
+              --from-literal=AWS_SECRET_ACCESS_KEY="$CMC_S3_SECRET_ACCESS_KEY" \
+              --dry-run=client -o yaml | kubectl --context "$KUBE_CONTEXT" apply -f -
+          fi
+          tls_dir="$(mktemp -d)"
+          trap 'rm -rf "$tls_dir"' EXIT
+          printf '%s' "$CMC_TLS_CERTIFICATE" > "$tls_dir/tls.crt"
+          printf '%s' "$CMC_TLS_PRIVATE_KEY" > "$tls_dir/tls.key"
+          kubectl --context "$KUBE_CONTEXT" -n odoo-system create secret tls odoo-tls \
+            --cert="$tls_dir/tls.crt" --key="$tls_dir/tls.key" \
+            --dry-run=client -o yaml | kubectl --context "$KUBE_CONTEXT" apply -f -
+          for key in admin viewer; do
+            test -n "$(kubectl --context "$KUBE_CONTEXT" -n apisix get secret apisix-admin-credentials -o "jsonpath={.data.$key}")"
+          done
+          for key in ADMIN_PASSWORD ADMIN_LOGIN_PASSWORD; do
+            test -n "$(kubectl --context "$KUBE_CONTEXT" -n odoo-system get secret odoo-secrets -o "jsonpath={.data.$key}")"
+          done
+          for key in HOST PORT DATABASE SSLMODE USER PASSWORD; do
+            test -n "$(kubectl --context "$KUBE_CONTEXT" -n odoo-system get secret odoo-db-connection -o "jsonpath={.data.$key}")"
+          done
+          if kubectl --context "$KUBE_CONTEXT" -n odoo-system get pvc postgres-pvc >/dev/null 2>&1; then
+            echo "Legacy in-cluster postgres-pvc exists. Migrate and verify it in DBaaS before GitOps pruning."
+            exit 1
+          fi
+          kubectl --context "$KUBE_CONTEXT" -n odoo-system get secret odoo-tls -o jsonpath='{.data.tls\.crt}' | grep -q .
+      - name: Verify NFS RWX write access as Odoo UID 101
+        shell: bash
+        run: |
+          set -euo pipefail
+          existing_class="$(kubectl --context "$KUBE_CONTEXT" -n odoo-system get pvc odoo-filestore-pvc \
+            -o jsonpath='{.spec.storageClassName}' 2>/dev/null || true)"
+          if [ -n "$existing_class" ] && [ "$existing_class" != "$CMC_RWX_STORAGE_CLASS" ]; then
+            echo "odoo-filestore-pvc already uses StorageClass $existing_class; expected $CMC_RWX_STORAGE_CLASS." >&2
+            exit 1
+          fi
+          kubectl --context "$KUBE_CONTEXT" -n odoo-system delete job odoo-nfs-preflight \
+            --ignore-not-found --wait=true
+          sed "s/storageClassName: nfs-csi/storageClassName: $CMC_RWX_STORAGE_CLASS/" \
+            bootstrap/odoo-nfs-preflight.yaml | kubectl --context "$KUBE_CONTEXT" apply -f -
+          if ! kubectl --context "$KUBE_CONTEXT" -n odoo-system wait \
+            --for=jsonpath='{.status.phase}'=Bound pvc/odoo-filestore-pvc --timeout=180s; then
+            kubectl --context "$KUBE_CONTEXT" -n odoo-system describe pvc odoo-filestore-pvc || true
+            exit 1
+          fi
+          if ! kubectl --context "$KUBE_CONTEXT" -n odoo-system wait \
+            --for=condition=complete job/odoo-nfs-preflight --timeout=180s; then
+            kubectl --context "$KUBE_CONTEXT" -n odoo-system logs job/odoo-nfs-preflight || true
+            kubectl --context "$KUBE_CONTEXT" -n odoo-system describe job odoo-nfs-preflight || true
+            kubectl --context "$KUBE_CONTEXT" -n odoo-system get pods -l component=nfs-preflight -o wide || true
+            echo 'NFS must allow UID/GID 101 to write. Check root_squash, anonuid/anongid, and PVC directory ownership.' >&2
+            exit 1
+          fi
+          kubectl --context "$KUBE_CONTEXT" -n odoo-system logs job/odoo-nfs-preflight
+          kubectl --context "$KUBE_CONTEXT" -n odoo-system delete job odoo-nfs-preflight --wait=true
+      - name: Verify PostgreSQL 16 from inside the cluster
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl --context "$KUBE_CONTEXT" -n odoo-system delete job odoo-dbaas-preflight --ignore-not-found --wait=true
+          kubectl --context "$KUBE_CONTEXT" apply -f bootstrap/odoo-dbaas-preflight.yaml
+          if ! kubectl --context "$KUBE_CONTEXT" -n odoo-system wait --for=condition=complete job/odoo-dbaas-preflight --timeout=180s; then
+            kubectl --context "$KUBE_CONTEXT" -n odoo-system logs job/odoo-dbaas-preflight || true
+            exit 1
+          fi
+          kubectl --context "$KUBE_CONTEXT" -n odoo-system logs job/odoo-dbaas-preflight
+          kubectl --context "$KUBE_CONTEXT" -n odoo-system delete job odoo-dbaas-preflight --wait=true
+      - name: Install Argo CD via Helm
+        shell: bash
+        run: |
+          set -euo pipefail
+          helm --kube-context "$KUBE_CONTEXT" upgrade --install argocd argo-cd \
+            --repo https://argoproj.github.io/argo-helm \
+            --version "$ARGOCD_CHART_VERSION" \
+            --namespace argocd \
+            --wait --timeout 10m
+      - name: Wait for Argo CD controllers to be fully ready
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Waiting for argocd-server..."
+          kubectl --context "$KUBE_CONTEXT" -n argocd rollout status deployment/argocd-server --timeout=300s
+          echo "Waiting for argocd-repo-server..."
+          kubectl --context "$KUBE_CONTEXT" -n argocd rollout status deployment/argocd-repo-server --timeout=300s
+          echo "Waiting for argocd-application-controller..."
+          kubectl --context "$KUBE_CONTEXT" -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
+          echo "All Argo CD components are ready."
+      - name: Register the AppProject and root Application
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl --context "$KUBE_CONTEXT" apply -f bootstrap/odoo-cmc-project.yaml
+          kubectl --context "$KUBE_CONTEXT" apply -f bootstrap/odoo-cmc-root.yaml
+          echo "Root application registered. Argo CD will now reconcile all child applications."
+          kubectl --context "$KUBE_CONTEXT" -n argocd get applications.argoproj.io
+      - name: Restart existing Odoo workloads after runtime Secret reconciliation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if kubectl --context "$KUBE_CONTEXT" -n odoo-system get rollout odoo-web-rollout >/dev/null 2>&1; then
+            restart_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            kubectl --context "$KUBE_CONTEXT" -n odoo-system patch rollout odoo-web-rollout \
+              --type=merge --patch "{\"spec\":{\"restartAt\":\"$restart_at\"}}"
+            for deployment in odoo-worker odoo-cron odoo-queue-runner; do
+              kubectl --context "$KUBE_CONTEXT" -n odoo-system rollout restart "deployment/$deployment"
+              kubectl --context "$KUBE_CONTEXT" -n odoo-system rollout status "deployment/$deployment" --timeout=600s
+            done
+            kubectl --context "$KUBE_CONTEXT" -n odoo-system wait \
+              --for=jsonpath='{.status.phase}'=Healthy rollout/odoo-web-rollout --timeout=1200s
+          else
+            echo 'No existing Odoo Rollout; first Argo reconciliation will consume the new Secrets.'
+          fi
