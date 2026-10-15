@@ -146,6 +146,15 @@ def main():
         "odoo-cmc-infrastructure", "odoo-argo-rollouts", "odoo-keda",
         "odoo-apisix", "odoo-cmc"}
     assert all(d["spec"]["syncPolicy"]["automated"]["selfHeal"] for d in applications)
+    apisix_application = next(
+        d for d in applications if d["metadata"]["name"] == "odoo-apisix")
+    assert apisix_application["spec"]["ignoreDifferences"] == [{
+        "group": "apiextensions.k8s.io",
+        "kind": "CustomResourceDefinition",
+        "jsonPointers": ["/spec/preserveUnknownFields"],
+    }]
+    assert "RespectIgnoreDifferences=true" in apisix_application[
+        "spec"]["syncPolicy"]["syncOptions"]
     preflight = yaml.safe_load((ROOT / "bootstrap/odoo-dbaas-preflight.yaml").read_text(encoding="utf-8"))
     assert preflight["spec"]["template"]["spec"]["containers"][0]["image"] == "postgres:16-alpine"
     nfs_preflight = list(yaml.safe_load_all(
