@@ -16,6 +16,8 @@ spec:
     - /spec/preserveUnknownFields
     jqPathExpressions:
     - '.spec.conversion | select(.strategy == "None")'
+    # Kubernetes omits the default printer-column priority from live CRDs.
+    - '.spec.versions[]?.additionalPrinterColumns[]?.priority | select(. == 0)'
   source:
     repoURL: https://apache.github.io/apisix-helm-chart
     chart: apisix

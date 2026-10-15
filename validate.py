@@ -153,7 +153,8 @@ def main():
         "kind": "CustomResourceDefinition",
         "jsonPointers": ["/spec/preserveUnknownFields"],
         "jqPathExpressions": [
-            '.spec.conversion | select(.strategy == "None")'],
+            '.spec.conversion | select(.strategy == "None")',
+            '.spec.versions[]?.additionalPrinterColumns[]?.priority | select(. == 0)'],
     }]
     assert "RespectIgnoreDifferences=true" in apisix_application[
         "spec"]["syncPolicy"]["syncOptions"]
