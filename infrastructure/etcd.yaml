@@ -60,19 +60,26 @@ spec:
         volumeMounts:
         - name: data
           mountPath: /etcd-data
+        # A rolling update replaces members from the highest ordinal first.
+        # Probe the local listener so that the first updated member can become
+        # Ready before the other members have been replaced and quorum exists.
+        startupProbe:
+          tcpSocket:
+            port: client
+          periodSeconds: 2
+          timeoutSeconds: 1
+          failureThreshold: 30
         readinessProbe:
-          httpGet:
-            path: /readyz?exclude=linearizable_read
+          tcpSocket:
             port: client
           periodSeconds: 5
-          timeoutSeconds: 3
+          timeoutSeconds: 1
           failureThreshold: 6
         livenessProbe:
-          httpGet:
-            path: /livez
+          tcpSocket:
             port: client
           periodSeconds: 10
-          timeoutSeconds: 5
+          timeoutSeconds: 1
           failureThreshold: 6
   volumeClaimTemplates:
   - metadata:
