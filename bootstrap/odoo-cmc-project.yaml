@@ -19,6 +19,10 @@ spec:
     namespace: argo-rollouts
   - server: https://kubernetes.default.svc
     namespace: keda
+  # KEDA's metrics API server reads extension-apiserver authentication via
+  # keda-operator-auth-reader in kube-system.
+  - server: https://kubernetes.default.svc
+    namespace: kube-system
   clusterResourceWhitelist:
   - group: '*'
     kind: '*'

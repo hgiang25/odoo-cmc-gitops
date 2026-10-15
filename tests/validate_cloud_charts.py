@@ -17,6 +17,10 @@ def main():
     config = cmc.load_config(cmc.ROOT / 'cmc/config.example.yaml')
     artifacts = cmc.artifacts(config)
     schemas = {}
+    project = yaml.safe_load((cmc.ROOT / 'bootstrap/odoo-cmc-project.yaml').read_text(
+        encoding='utf-8'))
+    allowed_namespaces = {d['namespace'] for d in project['spec']['destinations']
+                          if d['server'] == 'https://kubernetes.default.svc'}
     charts = [('apisix', 'https://apache.github.io/apisix-helm-chart', '2.10.0'), *cmc.CHARTS]
     with tempfile.TemporaryDirectory() as directory:
         values = Path(directory) / 'apisix.yaml'
@@ -28,6 +32,11 @@ def main():
                 args += ['-f', str(values)]
             rendered = [d for d in yaml.safe_load_all(cmc.run(args)) if d]
             for doc in rendered:
+                namespace = doc.get('metadata', {}).get('namespace')
+                if namespace:
+                    assert namespace in allowed_namespaces, (
+                        f'{name}: {doc["kind"]}/{doc["metadata"]["name"]} targets '
+                        f'namespace {namespace}, which AppProject does not permit')
                 if doc['kind'] == 'CustomResourceDefinition':
                     for ver in doc['spec']['versions']:
                         schemas[(doc['spec']['group'] + '/' + ver['name'], doc['spec']['names']['kind'])] = ver['schema']['openAPIV3Schema']
