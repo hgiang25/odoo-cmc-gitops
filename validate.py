@@ -152,6 +152,8 @@ def main():
         "group": "apiextensions.k8s.io",
         "kind": "CustomResourceDefinition",
         "jsonPointers": ["/spec/preserveUnknownFields"],
+        "jqPathExpressions": [
+            '.spec.conversion | select(.strategy == "None")'],
     }]
     assert "RespectIgnoreDifferences=true" in apisix_application[
         "spec"]["syncPolicy"]["syncOptions"]

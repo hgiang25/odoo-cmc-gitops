@@ -14,6 +14,8 @@ spec:
     kind: CustomResourceDefinition
     jsonPointers:
     - /spec/preserveUnknownFields
+    jqPathExpressions:
+    - '.spec.conversion | select(.strategy == "None")'
   source:
     repoURL: https://apache.github.io/apisix-helm-chart
     chart: apisix
