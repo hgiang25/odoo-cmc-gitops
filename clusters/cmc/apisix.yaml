@@ -31,6 +31,8 @@ spec:
           # ELB provisioning is paused until the HA firewall subnet is ready.
           # ClusterIP requests no cloud load balancer (public or private).
           type: ClusterIP
+          # Chart 2.10.0 renders this even for ClusterIP; clear the LB default.
+          externalTrafficPolicy: ""
           annotations: {}
           http:
             enabled: false

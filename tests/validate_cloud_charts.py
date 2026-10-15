@@ -73,6 +73,7 @@ def main():
         assert all(d['spec'].get('type', 'ClusterIP') == 'ClusterIP'
                    for d in committed_services), 'ELB provisioning must remain paused'
         gateway = next(d for d in committed_services if d['metadata']['name'] == 'apisix-gateway')
+        assert not gateway['spec'].get('externalTrafficPolicy')
         assert [p['port'] for p in gateway['spec']['ports']] == [443]
         assert not any(k.startswith('loadbalancer.openstack.org/')
                        for k in (gateway['metadata'].get('annotations') or {}))
