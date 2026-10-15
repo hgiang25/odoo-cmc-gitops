@@ -28,20 +28,23 @@ spec:
       containers:
       - name: etcd
         image: quay.io/coreos/etcd:v3.5.21
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
         command:
-        - /bin/sh
-        - -ec
-        - |
-          exec etcd \
-            --name="${HOSTNAME}" \
-            --data-dir=/etcd-data \
-            --listen-client-urls=http://0.0.0.0:2379 \
-            --advertise-client-urls="http://${HOSTNAME}.apisix-etcd.apisix.svc.cluster.local:2379" \
-            --listen-peer-urls=http://0.0.0.0:2380 \
-            --initial-advertise-peer-urls="http://${HOSTNAME}.apisix-etcd.apisix.svc.cluster.local:2380" \
-            --initial-cluster="apisix-etcd-0=http://apisix-etcd-0.apisix-etcd.apisix.svc.cluster.local:2380,apisix-etcd-1=http://apisix-etcd-1.apisix-etcd.apisix.svc.cluster.local:2380,apisix-etcd-2=http://apisix-etcd-2.apisix-etcd.apisix.svc.cluster.local:2380" \
-            --initial-cluster-state=new \
-            --initial-cluster-token=odoo-apisix-etcd
+        - /usr/local/bin/etcd
+        args:
+        - --name=$(POD_NAME)
+        - --data-dir=/etcd-data
+        - --listen-client-urls=http://0.0.0.0:2379
+        - --advertise-client-urls=http://$(POD_NAME).apisix-etcd.apisix.svc.cluster.local:2379
+        - --listen-peer-urls=http://0.0.0.0:2380
+        - --initial-advertise-peer-urls=http://$(POD_NAME).apisix-etcd.apisix.svc.cluster.local:2380
+        - --initial-cluster=apisix-etcd-0=http://apisix-etcd-0.apisix-etcd.apisix.svc.cluster.local:2380,apisix-etcd-1=http://apisix-etcd-1.apisix-etcd.apisix.svc.cluster.local:2380,apisix-etcd-2=http://apisix-etcd-2.apisix-etcd.apisix.svc.cluster.local:2380
+        - --initial-cluster-state=new
+        - --initial-cluster-token=odoo-apisix-etcd
         ports:
         - containerPort: 2379
           name: client
@@ -60,7 +63,8 @@ spec:
         readinessProbe:
           exec:
             command:
-            - etcdctl
+            - /usr/local/bin/etcdctl
+            - --endpoints=http://127.0.0.1:2379
             - endpoint
             - health
           periodSeconds: 5
@@ -69,7 +73,8 @@ spec:
         livenessProbe:
           exec:
             command:
-            - etcdctl
+            - /usr/local/bin/etcdctl
+            - --endpoints=http://127.0.0.1:2379
             - endpoint
             - health
           periodSeconds: 10

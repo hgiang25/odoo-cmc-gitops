@@ -132,6 +132,15 @@ def main():
     etcd = next(d for d in infrastructure if d["kind"] == "StatefulSet"
                 and d["metadata"]["name"] == "apisix-etcd")
     assert etcd["spec"]["replicas"] == 3
+    etcd_container = etcd["spec"]["template"]["spec"]["containers"][0]
+    assert etcd_container["command"] == ["/usr/local/bin/etcd"]
+    assert etcd_container["env"] == [{"name": "POD_NAME", "valueFrom": {
+        "fieldRef": {"fieldPath": "metadata.name"}}}]
+    assert "--name=$(POD_NAME)" in etcd_container["args"]
+    for probe in ("readinessProbe", "livenessProbe"):
+        command = etcd_container[probe]["exec"]["command"]
+        assert command[:2] == ["/usr/local/bin/etcdctl",
+                               "--endpoints=http://127.0.0.1:2379"]
     assert any(d["kind"] == "PodDisruptionBudget" and d["metadata"]["name"] == "apisix-etcd"
                for d in infrastructure)
     applications = render(ROOT / "clusters/cmc")
