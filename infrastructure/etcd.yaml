@@ -61,22 +61,16 @@ spec:
         - name: data
           mountPath: /etcd-data
         readinessProbe:
-          exec:
-            command:
-            - /usr/local/bin/etcdctl
-            - --endpoints=http://127.0.0.1:2379
-            - endpoint
-            - health
+          httpGet:
+            path: /readyz?exclude=linearizable_read
+            port: client
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 6
         livenessProbe:
-          exec:
-            command:
-            - /usr/local/bin/etcdctl
-            - --endpoints=http://127.0.0.1:2379
-            - endpoint
-            - health
+          httpGet:
+            path: /livez
+            port: client
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 6

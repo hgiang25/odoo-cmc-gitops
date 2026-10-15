@@ -137,10 +137,10 @@ def main():
     assert etcd_container["env"] == [{"name": "POD_NAME", "valueFrom": {
         "fieldRef": {"fieldPath": "metadata.name"}}}]
     assert "--name=$(POD_NAME)" in etcd_container["args"]
-    for probe in ("readinessProbe", "livenessProbe"):
-        command = etcd_container[probe]["exec"]["command"]
-        assert command[:2] == ["/usr/local/bin/etcdctl",
-                               "--endpoints=http://127.0.0.1:2379"]
+    assert etcd_container["readinessProbe"]["httpGet"] == {
+        "path": "/readyz?exclude=linearizable_read", "port": "client"}
+    assert etcd_container["livenessProbe"]["httpGet"] == {
+        "path": "/livez", "port": "client"}
     assert any(d["kind"] == "PodDisruptionBudget" and d["metadata"]["name"] == "apisix-etcd"
                for d in infrastructure)
     applications = render(ROOT / "clusters/cmc")
