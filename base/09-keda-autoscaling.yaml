@@ -28,7 +28,6 @@ kind: TriggerAuthentication
 metadata:
   name: odoo-postgresql-auth
   namespace: odoo-system
-  labels: {}
 spec:
   secretTargetRef:
   - parameter: host

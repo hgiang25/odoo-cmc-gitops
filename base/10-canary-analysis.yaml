@@ -3,7 +3,6 @@ kind: AnalysisTemplate
 metadata:
   name: odoo-canary-health
   namespace: odoo-system
-  labels: {}
 spec:
   metrics:
   - name: odoo-http-and-database-health

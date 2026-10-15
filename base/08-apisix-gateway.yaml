@@ -3,7 +3,6 @@ kind: ApisixRoute
 metadata:
   name: odoo-gateway
   namespace: odoo-system
-  labels: {}
 spec:
   http:
   - name: internal-endpoints
