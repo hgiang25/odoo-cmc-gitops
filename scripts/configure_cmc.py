@@ -65,8 +65,10 @@ def configure(domain, rwx_class, block_class, elb_flavor, root=ROOT):
 
     apisix_path = root / "clusters/cmc/apisix.yaml"
     apisix = yaml.safe_load(apisix_path.read_text(encoding="utf-8"))
-    annotations = apisix["spec"]["source"]["helm"]["valuesObject"]["service"]["annotations"]
-    annotations["loadbalancer.openstack.org/flavor-id"] = elb_flavor
+    service = apisix["spec"]["source"]["helm"]["valuesObject"]["service"]
+    # Updating other environment settings must not resume ELB provisioning.
+    if service.get("type") == "LoadBalancer":
+        service.setdefault("annotations", {})["loadbalancer.openstack.org/flavor-id"] = elb_flavor
     apisix_path.write_text(yaml.safe_dump(apisix, sort_keys=False), encoding="utf-8")
 
 

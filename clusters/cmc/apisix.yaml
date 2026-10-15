@@ -28,10 +28,10 @@ spec:
         fullnameOverride: apisix
         replicaCount: 2
         service:
-          type: LoadBalancer
-          annotations:
-            loadbalancer.openstack.org/class: cmc-loadbalancer-public
-            loadbalancer.openstack.org/flavor-id: a80cfbb4-326b-4819-8e67-58eca8495490
+          # ELB provisioning is paused until the HA firewall subnet is ready.
+          # ClusterIP requests no cloud load balancer (public or private).
+          type: ClusterIP
+          annotations: {}
           http:
             enabled: false
           tls:

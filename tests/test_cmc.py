@@ -164,8 +164,12 @@ class CloudTests(unittest.TestCase):
                 shutil.copy2(cmc.ROOT / relative, target)
             configure('erp.example.vn', 'cmc-nfs-rwx', 'cmc-cinder-rwo', 'flavor-2', root)
             combined = '\n'.join(path.read_text(encoding='utf-8') for path in root.rglob('*.yaml'))
-            for value in ('erp.example.vn', 'cmc-nfs-rwx', 'cmc-cinder-rwo', 'flavor-2'):
+            for value in ('erp.example.vn', 'cmc-nfs-rwx', 'cmc-cinder-rwo'):
                 self.assertIn(value, combined)
+            service = yaml.safe_load((root / 'clusters/cmc/apisix.yaml').read_text(
+                encoding='utf-8'))['spec']['source']['helm']['valuesObject']['service']
+            self.assertEqual(service['type'], 'ClusterIP')
+            self.assertEqual(service['annotations'], {})
             self.assertNotIn('REPLACE_ODOO_DOMAIN', combined)
             self.assertNotIn('REPLACE_CMC_RWX_STORAGE_CLASS', combined)
             self.assertNotIn('REPLACE_CMC_BLOCK_STORAGE_CLASS', combined)

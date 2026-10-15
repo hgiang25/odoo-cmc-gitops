@@ -64,10 +64,18 @@ def main():
         gitops_values = yaml.safe_load((cmc.ROOT / 'clusters/cmc/apisix.yaml').read_text(
             encoding='utf-8'))['spec']['source']['helm']['valuesObject']
         values.write_text(yaml.safe_dump(gitops_values), encoding='utf-8')
-        cmc.run(['helm', 'template', 'apisix', 'apisix',
+        committed_render = cmc.run(['helm', 'template', 'apisix', 'apisix',
                  '--repo', 'https://apache.github.io/apisix-helm-chart', '--version', '2.10.0',
                  '--namespace', 'apisix', '--kube-version', config['kubernetesMinor'] + '.0',
                  '-f', str(values)])
+        committed_services = [d for d in yaml.safe_load_all(committed_render)
+                              if d and d['kind'] == 'Service']
+        assert all(d['spec'].get('type', 'ClusterIP') == 'ClusterIP'
+                   for d in committed_services), 'ELB provisioning must remain paused'
+        gateway = next(d for d in committed_services if d['metadata']['name'] == 'apisix-gateway')
+        assert [p['port'] for p in gateway['spec']['ports']] == [443]
+        assert not any(k.startswith('loadbalancer.openstack.org/')
+                       for k in (gateway['metadata'].get('annotations') or {}))
         print('argo-cd 10.10.3 and committed APISIX GitOps values: Helm render passed')
     count = 0
     for doc in artifacts['app.yaml']:
@@ -81,7 +89,7 @@ def main():
     for doc in gitops:
         jsonschema.validate(doc, schemas[(doc['apiVersion'], doc['kind'])])
         count += 1
-    print(f'Validated {count} CMC custom resources against pinned chart schemas; HTTPS-only LoadBalancer verified.')
+    print(f'Validated {count} CMC custom resources; committed gateway is HTTPS-only ClusterIP, ELB paused.')
 
 
 if __name__ == '__main__':

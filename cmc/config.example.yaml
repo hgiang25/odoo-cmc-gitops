@@ -19,7 +19,7 @@ s3:
   region: us-east-1
 tlsSecret: odoo-tls
 loadBalancerAnnotations:
-  loadbalancer.openstack.org/class: cmc-loadbalancer-public
+  loadbalancer.openstack.org/class: cmc-loadbalancer-private
   loadbalancer.openstack.org/flavor-id: REPLACE_REGION_SPECIFIC_LB_FLAVOR_ID
 # Enable only after testing a manual backup + restore and accepting downtime.
 backupScheduleEnabled: false
