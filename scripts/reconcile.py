@@ -109,7 +109,7 @@ class Cluster:
                 {'op': 'test', 'path': '/metadata/resourceVersion', 'value': app['metadata']['resourceVersion']},
                 {'op': 'add', 'path': '/operation', 'value': {
                     'initiatedBy': {'username': marker},
-                    'sync': {'revision': revision, 'prune': False, 'syncStrategy': {'apply': {}}},
+                    'sync': {'revision': revision, 'prune': False, 'syncStrategy': {'hook': {}}},
                     'retry': {'limit': 2, 'backoff': {'duration': '10s', 'factor': 2, 'maxDuration': '1m'}},
                 }},
             ]
