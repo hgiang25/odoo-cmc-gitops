@@ -27,11 +27,11 @@ spec:
         fullnameOverride: apisix
         replicaCount: 2
         service:
-          # Safe state for a newly published repository. The Configure workflow
-          # changes this to a private LoadBalancer only after validating its flavor.
-          type: ClusterIP
-          externalTrafficPolicy: ''
-          annotations: {}
+          type: LoadBalancer
+          externalTrafficPolicy: Cluster
+          annotations:
+            loadbalancer.openstack.org/class: cmc-loadbalancer-private
+            loadbalancer.openstack.org/flavor-id: a80cfbb4-326b-4819-8e67-58eca8495490
           http:
             enabled: false
           tls:
@@ -57,8 +57,9 @@ spec:
               secretViewerKey: viewer
           nginx:
             configurationSnippet:
-              httpSrv: |
-                client_max_body_size 100m;
+              httpSrv: 'client_max_body_size 100m;
+
+                '
           prometheus:
             enabled: true
           pluginAttrs:
