@@ -4,7 +4,7 @@ metadata:
   name: odoo-cmc
   namespace: argocd
 spec:
-  description: Odoo and its cluster controllers on CMC Cloud
+  description: Shared cluster controllers and retained legacy Odoo; Dev and Prod use dedicated projects
   sourceRepos:
   - https://github.com/hgiang25/odoo-cmc-gitops.git
   - https://apache.github.io/apisix-helm-chart
@@ -19,10 +19,10 @@ spec:
     namespace: argo-rollouts
   - server: https://kubernetes.default.svc
     namespace: keda
-  # KEDA's metrics API server reads extension-apiserver authentication via
-  # keda-operator-auth-reader in kube-system.
   - server: https://kubernetes.default.svc
     namespace: kube-system
+  - server: https://kubernetes.default.svc
+    namespace: argocd
   clusterResourceWhitelist:
   - group: '*'
     kind: '*'

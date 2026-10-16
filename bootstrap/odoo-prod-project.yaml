@@ -1,0 +1,15 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: odoo-prod
+  namespace: argocd
+spec:
+  sourceRepos:
+  - https://github.com/hgiang25/odoo-cmc-gitops.git
+  destinations:
+  - server: https://kubernetes.default.svc
+    namespace: odoo-prod
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+  - group: '*'
+    kind: '*'

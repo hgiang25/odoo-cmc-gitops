@@ -7,7 +7,7 @@ import sys
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_FILE = ROOT / "overlays/cmc/kustomization.yaml"
+DEFAULT_FILE = ROOT / "overlays/dev/kustomization.yaml"
 
 
 def update(path: Path, username: str, tag: str) -> None:

@@ -1,0 +1,264 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: odoo-prod
+resources:
+- ../cmc-common
+- boundaries.yaml
+images:
+- name: odoo-queue
+  newName: docker.io/hgyang25/odoo-queue
+  newTag: sha-df39593055263535e85a26d6ff3d2d3aaf7f8a32
+- name: odoo-backup
+  newName: docker.io/hgyang25/odoo-backup
+  newTag: sha-df39593055263535e85a26d6ff3d2d3aaf7f8a32
+configMapGenerator:
+- name: odoo-runtime-settings
+  behavior: merge
+  literals:
+  - s3_prefix=odoo/prod/backups
+  namespace: odoo-system
+patches:
+- target:
+    kind: Deployment
+    name: .*
+  patch: |
+    - op: add
+      path: /spec/template/spec/tolerations
+      value:
+      - key: odoo.cmc/environment
+        operator: Equal
+        value: prod
+        effect: NoSchedule
+    - op: add
+      path: /spec/template/spec/affinity
+      value:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: odoo.cmc/environment
+                operator: In
+                values:
+                - prod
+    - op: add
+      path: /spec/template/metadata/labels/odoo.cmc~1environment
+      value: prod
+- target:
+    kind: Rollout
+    name: .*
+  patch: |
+    - op: add
+      path: /spec/template/spec/tolerations
+      value:
+      - key: odoo.cmc/environment
+        operator: Equal
+        value: prod
+        effect: NoSchedule
+    - op: add
+      path: /spec/template/spec/affinity
+      value:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: odoo.cmc/environment
+                operator: In
+                values:
+                - prod
+    - op: add
+      path: /spec/template/metadata/labels/odoo.cmc~1environment
+      value: prod
+- target:
+    kind: Job
+    name: .*
+  patch: |
+    - op: add
+      path: /spec/template/spec/tolerations
+      value:
+      - key: odoo.cmc/environment
+        operator: Equal
+        value: prod
+        effect: NoSchedule
+    - op: add
+      path: /spec/template/spec/affinity
+      value:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: odoo.cmc/environment
+                operator: In
+                values:
+                - prod
+    - op: add
+      path: /spec/template/metadata/labels/odoo.cmc~1environment
+      value: prod
+- target:
+    kind: CronJob
+    name: .*
+  patch: |
+    - op: add
+      path: /spec/jobTemplate/spec/template/spec/tolerations
+      value:
+      - key: odoo.cmc/environment
+        operator: Equal
+        value: prod
+        effect: NoSchedule
+    - op: add
+      path: /spec/jobTemplate/spec/template/spec/affinity
+      value:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: odoo.cmc/environment
+                operator: In
+                values:
+                - prod
+    - op: add
+      path: /spec/jobTemplate/spec/template/metadata/labels/odoo.cmc~1environment
+      value: prod
+- target:
+    kind: Rollout
+    name: odoo-web-rollout
+  patch: |
+    - op: add
+      path: /spec/template/spec/affinity/podAntiAffinity
+      value:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app: odoo
+                component: web
+            namespaces:
+            - odoo-prod
+- target:
+    kind: Deployment
+    name: odoo-worker
+  patch: |
+    - op: add
+      path: /spec/template/spec/affinity/podAntiAffinity
+      value:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app: odoo
+                component: worker
+            namespaces:
+            - odoo-prod
+- target:
+    kind: Deployment
+    name: odoo-queue-runner
+  patch: |
+    - op: add
+      path: /spec/template/spec/affinity/podAffinity
+      value:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 50
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app: odoo
+                component: worker
+            namespaces:
+            - odoo-prod
+- target:
+    kind: Namespace
+    name: .*
+  patch: |
+    - op: add
+      path: /metadata/labels/environment
+      value: prod
+    - op: add
+      path: /metadata/annotations/argocd.argoproj.io~1sync-options
+      value: Prune=false,Delete=false
+- target:
+    kind: PersistentVolumeClaim
+    name: .*
+  patch: |
+    - op: add
+      path: /metadata/annotations/argocd.argoproj.io~1sync-options
+      value: Prune=false,Delete=false
+- target:
+    kind: AnalysisTemplate
+    name: odoo-canary-health
+  patch: |
+    - op: add
+      path: /spec/metrics/0/provider/web/url
+      value: http://odoo-web-canary.odoo-prod.svc.cluster.local:8069/web/health?db_server_status=1
+- target:
+    kind: NetworkPolicy
+    name: odoo-worker-from-runner
+  patch: |
+    - op: add
+      path: /spec/ingress/0/from/0/namespaceSelector/matchLabels/kubernetes.io~1metadata.name
+      value: odoo-prod
+- target:
+    kind: ScaledObject
+    name: odoo-web-autoscaler
+  patch: |
+    - op: add
+      path: /spec/minReplicaCount
+      value: 2
+    - op: add
+      path: /spec/maxReplicaCount
+      value: 8
+- target:
+    kind: ScaledObject
+    name: odoo-worker-autoscaler
+  patch: |
+    - op: add
+      path: /spec/minReplicaCount
+      value: 1
+    - op: add
+      path: /spec/maxReplicaCount
+      value: 4
+- target:
+    kind: ApisixTls
+    name: odoo-tls
+  patch: |
+    - op: add
+      path: /spec/secret/namespace
+      value: odoo-prod
+- target:
+    kind: ConfigMap
+    name: odoo-config
+  patch: |
+    - op: add
+      path: /data/odoo.conf
+      value: |
+        [options]
+        addons_path = /opt/odoo-src/addons,/opt/odoo-src/odoo/addons,/usr/lib/python3/dist-packages/odoo/addons,/opt/oca/queue
+        data_dir = /var/lib/odoo
+        ; Credentials are injected from a generated Secret.
+        db_name = odoo17_prod
+        dbfilter = ^odoo17_prod$
+        db_maxconn = 4
+        db_maxconn_gevent = 4
+        db_sslmode = prefer
+        proxy_mode = True
+        list_db = False
+        http_interface = 0.0.0.0
+        http_port = 8069
+        gevent_port = 8072
+        limit_time_cpu = 600
+        limit_time_real = 600
+        limit_time_real_cron = 600
+        limit_memory_soft = 805306368
+        limit_memory_hard = 1073741824
+        log_level = info
+- target:
+    kind: Namespace
+  patch: |
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: odoo-system
+    $patch: delete

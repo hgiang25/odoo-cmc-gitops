@@ -1,74 +1,56 @@
 name: Verify CMC reconciliation
-
-on:
+permissions:
+  contents: read
+concurrency:
+  group: odoo-cmc-runtime
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on:
+    - self-hosted
+    - Linux
+    - X64
+    timeout-minutes: 45
+    environment: odoo-${{ github.event.client_payload.environment || inputs.environment || 'dev' }}
+    env:
+      ODOO_ENV: ${{ github.event.client_payload.environment || inputs.environment || 'dev' }}
+      KUBE_CONTEXT: ${{ vars.CMC_KUBE_CONTEXT }}
+      ODOO_DOMAIN: ${{ vars.ODOO_DOMAIN }}
+      EXPECTED_TAG: ${{ github.event.client_payload.image_tag || inputs.image_tag }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: main
+    - name: Verify deployed revision and access path
+      shell: bash
+      run: |
+        set -euo pipefail
+        venv="$RUNNER_TEMP/odoo-verify-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+        python3 -m venv "$venv"
+        "$venv/bin/python" -m pip install -r requirements-tools.txt
+        export PATH="$venv/bin:$PATH"
+        [[ "$ODOO_ENV" =~ ^(dev|prod)$ ]]
+        test -n "$KUBE_CONTEXT"
+        revision="$(git rev-parse HEAD)"
+        python scripts/reconcile.py verify --environment "$ODOO_ENV" --context "$KUBE_CONTEXT" --revision "$revision" --expected-tag "$EXPECTED_TAG"
+        python scripts/environment.py preflight --environment "$ODOO_ENV" --context "$KUBE_CONTEXT"
+        python scripts/verify_endpoint.py --environment "$ODOO_ENV" --context "$KUBE_CONTEXT" --domain "$ODOO_DOMAIN"
+    if: github.ref == 'refs/heads/main'
+'on':
   workflow_dispatch:
     inputs:
+      environment:
+        description: Environment to verify
+        type: choice
+        options:
+        - dev
+        - prod
+        default: dev
+        required: true
       image_tag:
         description: Expected immutable image tag; leave empty to verify current desired state
         required: false
         type: string
   repository_dispatch:
-    types: [verify-release]
-
-permissions:
-  contents: read
-
-concurrency:
-  group: odoo-cmc-live-verification
-  cancel-in-progress: false
-
-jobs:
-  verify:
-    runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 30
-    env:
-      KUBE_CONTEXT: ${{ vars.CMC_KUBE_CONTEXT }}
-      ODOO_DOMAIN: ${{ vars.ODOO_DOMAIN }}
-      EXPECTED_TAG: ${{ github.event.client_payload.image_tag || inputs.image_tag }}
-    steps:
-    - name: Verify tools and cluster access
-      shell: bash
-      run: |
-        set -euo pipefail
-        command -v kubectl
-        command -v curl
-        test -n "$KUBE_CONTEXT"
-        test -n "$ODOO_DOMAIN"
-        kubectl --context "$KUBE_CONTEXT" cluster-info
-    - name: Wait for every Argo CD application
-      shell: bash
-      run: |
-        set -euo pipefail
-        applications=(odoo-cmc-infrastructure odoo-argo-rollouts odoo-keda odoo-apisix odoo-cmc)
-        deadline=$((SECONDS + 1200))
-        while :; do
-          pending=0
-          for application in "${applications[@]}"; do
-            sync="$(kubectl --context "$KUBE_CONTEXT" -n argocd get application "$application" -o jsonpath='{.status.sync.status}' 2>/dev/null || true)"
-            health="$(kubectl --context "$KUBE_CONTEXT" -n argocd get application "$application" -o jsonpath='{.status.health.status}' 2>/dev/null || true)"
-            echo "$application sync=$sync health=$health"
-            if [ "$sync" != Synced ] || [ "$health" != Healthy ]; then pending=1; fi
-          done
-          if [ "$pending" -eq 0 ]; then break; fi
-          if [ "$SECONDS" -ge "$deadline" ]; then
-            kubectl --context "$KUBE_CONTEXT" -n argocd get applications.argoproj.io
-            exit 1
-          fi
-          sleep 15
-        done
-    - name: Verify rollout, image and public health
-      shell: bash
-      run: |
-        set -euo pipefail
-        kubectl --context "$KUBE_CONTEXT" -n odoo-system wait \
-          --for=jsonpath='{.status.phase}'=Healthy rollout/odoo-web-rollout --timeout=1200s
-        image="$(kubectl --context "$KUBE_CONTEXT" -n odoo-system get rollout odoo-web-rollout \
-          -o jsonpath='{.spec.template.spec.containers[?(@.name=="odoo-web")].image}')"
-        echo "Running image: $image"
-        if [ -n "$EXPECTED_TAG" ] && [[ "$image" != *":$EXPECTED_TAG" ]]; then
-          echo "Expected image tag $EXPECTED_TAG but rollout uses $image" >&2
-          exit 1
-        fi
-        curl --fail --silent --show-error --retry 12 --retry-delay 10 \
-          "https://$ODOO_DOMAIN/web/health?db_server_status=1"
-        kubectl --context "$KUBE_CONTEXT" -n odoo-system get pods,rollouts,scaledobjects
+    types:
+    - verify-release

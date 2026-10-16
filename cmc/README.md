@@ -1,3 +1,5 @@
+> **Superseded 2026-10-15:** private Dev/Prod configuration and migration now follow [MULTI-ENV.md](MULTI-ENV.md). Firewall is already operational and remains user-managed. The historical instructions below describe the previous single-namespace state.
+
 # Runbook triển khai Odoo trên CMC Cloud
 
 Luồng phát hành là pull-based GitOps:
@@ -38,7 +40,7 @@ hoặc ELB giả.
 | `REPLACE_ODOO_DOMAIN` | GitHub Variable `ODOO_DOMAIN` |
 | `REPLACE_CMC_RWX_STORAGE_CLASS` | `CMC_RWX_STORAGE_CLASS`; mặc định `nfs-csi` |
 | `REPLACE_CMC_BLOCK_STORAGE_CLASS` | `CMC_BLOCK_STORAGE_CLASS` |
-| `REPLACE_CMC_ELB_FLAVOR_ID` | `CMC_ELB_FLAVOR_ID` |
+| APISIX gateway đang `ClusterIP` an toàn | `CMC_ELB_FLAVOR_ID`; Configure mới bật private ELB |
 | `REPLACE_DOCKERHUB_USERNAME`, `REPLACE_IMAGE_TAG` | Pipeline release của app repo |
 
 Không nên xóa placeholder trước khi có giá trị thật: manifest sẽ mất gate an toàn nhưng
@@ -64,7 +66,7 @@ GitHub Secrets bắt buộc:
 
 GitHub Variable tùy chọn:
 
-- `CMC_AUTO_VERIFY=true`: sau khi promote image sẽ gọi workflow live verification ở repo
+- `CMC_AUTO_DEPLOY_DEV=true`: sau khi promote image sẽ gọi workflow deploy/verify Dev ở repo
   GitOps. Chỉ bật sau khi bootstrap cluster và self-hosted runner đã hoạt động.
 
 ### GitOps repo `hgiang25/odoo-cmc-gitops`
@@ -176,7 +178,7 @@ tiếp tục reconcile Odoo trong trạng thái filestore không ghi được.
    trỏ DNS domain vào ELB.
 9. Chạy workflow **Verify CMC reconciliation**; workflow đợi Argo, canary Rollout, xác nhận
    image tag và gọi `https://<domain>/web/health?db_server_status=1`.
-10. Chỉ sau khi bước 9 pass mới đặt `CMC_AUTO_VERIFY=true` ở app repo.
+10. Chỉ sau khi bước 9 pass mới đặt `CMC_AUTO_DEPLOY_DEV=true` ở app repo.
 
 ## 6. Kiểm tra offline
 

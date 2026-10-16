@@ -1,27 +1,22 @@
 name: Configure CMC desired state
-
-on:
-  workflow_dispatch:
-
 permissions:
   contents: write
-
 concurrency:
-  group: odoo-cmc-configuration
+  group: odoo-cmc-git-write
   cancel-in-progress: false
-
 jobs:
   configure:
     runs-on: ubuntu-latest
     env:
       ODOO_DOMAIN: ${{ vars.ODOO_DOMAIN }}
-      # The CMC cluster uses the CSI NFS StorageClass installed on the bastion.
-      # Keep the repository variable as an override if the class is renamed later.
       CMC_RWX_STORAGE_CLASS: ${{ vars.CMC_RWX_STORAGE_CLASS || 'nfs-csi' }}
       CMC_BLOCK_STORAGE_CLASS: ${{ vars.CMC_BLOCK_STORAGE_CLASS }}
       CMC_ELB_FLAVOR_ID: ${{ vars.CMC_ELB_FLAVOR_ID }}
     steps:
     - uses: actions/checkout@v4
+      with:
+        ref: main
+        fetch-depth: 0
     - uses: actions/setup-python@v5
       with:
         python-version: '3.12'
@@ -46,16 +41,27 @@ jobs:
         python validate.py
         kubectl kustomize overlays/cmc >/dev/null
         kubectl kustomize overlays/cmc-infrastructure >/dev/null
+        python -m unittest discover -s tests -v
     - name: Commit configuration
       shell: bash
       run: |
         set -euo pipefail
-        if git diff --quiet -- overlays/cmc/kustomization.yaml overlays/cmc/cloud-resources.yaml overlays/cmc-infrastructure/kustomization.yaml clusters/cmc/apisix.yaml; then
-          echo 'CMC desired state already matches GitHub Variables.'
-          exit 0
-        fi
         git config user.name 'github-actions[bot]'
         git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-        git add overlays/cmc/kustomization.yaml overlays/cmc/cloud-resources.yaml overlays/cmc-infrastructure/kustomization.yaml clusters/cmc/apisix.yaml
-        git commit -m 'chore(cmc): configure environment desired state'
-        git push origin HEAD:main
+        git add overlays/cmc-common/kustomization.yaml overlays/cmc-common/cloud-resources.yaml overlays/cmc-infrastructure/kustomization.yaml clusters/cmc/platform/apisix.yaml
+        if ! git diff --cached --quiet; then
+          git commit -m 'chore(cmc): configure environment desired state'
+          python scripts/push_gitops.py
+        fi
+        echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      id: commit
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      revision: ${{ steps.commit.outputs.revision }}
+'on':
+  workflow_dispatch: null
+  workflow_call:
+    outputs:
+      revision:
+        description: Validated GitOps commit on main
+        value: ${{ jobs.configure.outputs.revision }}

@@ -34,7 +34,7 @@ def configure(domain, rwx_class, block_class, elb_flavor, root=ROOT):
     require(K8S_NAME, block_class, "block StorageClass")
     require(FLAVOR, elb_flavor, "ELB flavor ID")
 
-    app_path = root / "overlays/cmc/kustomization.yaml"
+    app_path = root / "overlays/cmc-common/kustomization.yaml"
     app = yaml.safe_load(app_path.read_text(encoding="utf-8"))
     deployment = next(item for item in app["configMapGenerator"]
                       if item["name"] == "cmc-deployment-settings")
@@ -50,7 +50,7 @@ def configure(domain, rwx_class, block_class, elb_flavor, root=ROOT):
             patch["patch"] = patch["patch"].replace(previous_domain, domain)
     app_path.write_text(yaml.safe_dump(app, sort_keys=False), encoding="utf-8")
 
-    resources_path = root / "overlays/cmc/cloud-resources.yaml"
+    resources_path = root / "overlays/cmc-common/cloud-resources.yaml"
     resources = list(yaml.safe_load_all(resources_path.read_text(encoding="utf-8")))
     tls = next(item for item in resources if item.get("kind") == "ApisixTls")
     tls["spec"]["hosts"] = [domain]
@@ -63,12 +63,17 @@ def configure(domain, rwx_class, block_class, elb_flavor, root=ROOT):
     infra["patches"][0]["patch"] = yaml.safe_dump(operations, sort_keys=False).rstrip()
     infra_path.write_text(yaml.safe_dump(infra, sort_keys=False), encoding="utf-8")
 
-    apisix_path = root / "clusters/cmc/apisix.yaml"
+    apisix_path = root / "clusters/cmc/platform/apisix.yaml"
     apisix = yaml.safe_load(apisix_path.read_text(encoding="utf-8"))
     service = apisix["spec"]["source"]["helm"]["valuesObject"]["service"]
-    # Updating other environment settings must not resume ELB provisioning.
-    if service.get("type") == "LoadBalancer":
-        service.setdefault("annotations", {})["loadbalancer.openstack.org/flavor-id"] = elb_flavor
+    # This cluster has private-only ingress. Publishing the source repository leaves
+    # the Service at ClusterIP; only a validated Configure run enables the ELB.
+    service["type"] = "LoadBalancer"
+    service["externalTrafficPolicy"] = "Cluster"
+    service["annotations"] = {
+        "loadbalancer.openstack.org/class": "cmc-loadbalancer-private",
+        "loadbalancer.openstack.org/flavor-id": elb_flavor,
+    }
     apisix_path.write_text(yaml.safe_dump(apisix, sort_keys=False), encoding="utf-8")
 
 

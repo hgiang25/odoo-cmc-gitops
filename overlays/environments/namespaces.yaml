@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: odoo-dev
+  labels:
+    environment: dev
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: odoo-prod
+  labels:
+    environment: prod
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false

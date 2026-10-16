@@ -1,0 +1,183 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: odoo-system
+resources:
+- ../../base
+- cloud-resources.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+- name: cmc-deployment-settings
+  namespace: odoo-system
+  literals:
+  - domain=odoo.internal
+- name: odoo-runtime-settings
+  namespace: odoo-system
+  behavior: merge
+  literals:
+  - s3_required=false
+  - s3_endpoint_url=
+  - s3_bucket=
+  - s3_prefix=odoo/backups
+  - aws_region=us-east-1
+patches:
+- path: delete-postgres-statefulset.yaml
+- path: delete-postgres-pvc.yaml
+- path: delete-postgres-service.yaml
+- target:
+    kind: Namespace
+    name: odoo-system
+  patch: |-
+    - op: replace
+      path: /metadata/labels/environment
+      value: cmc-cloud
+    - op: add
+      path: /metadata/annotations
+      value:
+        argocd.argoproj.io/sync-wave: "-30"
+- target:
+    kind: PersistentVolumeClaim
+    name: odoo-(filestore|backup|restore)-pvc
+  patch: |-
+    - op: add
+      path: /spec/storageClassName
+      value: nfs-csi
+- target:
+    kind: PersistentVolumeClaim
+  patch: |-
+    - op: add
+      path: /metadata/annotations
+      value:
+        argocd.argoproj.io/sync-wave: "-20"
+- target:
+    kind: ConfigMap
+    name: odoo-(config|runtime-settings)
+  patch: |-
+    - op: add
+      path: /metadata/annotations
+      value:
+        argocd.argoproj.io/sync-wave: "-20"
+- target:
+    kind: Deployment
+  patch: |-
+    - op: add
+      path: /spec/template/spec/imagePullSecrets
+      value:
+      - name: odoo-registry
+- target:
+    group: argoproj.io
+    version: v1alpha1
+    kind: Rollout
+  patch: |-
+    - op: add
+      path: /spec/template/spec/imagePullSecrets
+      value:
+      - name: odoo-registry
+- target:
+    kind: Job
+  patch: |-
+    - op: add
+      path: /spec/template/spec/imagePullSecrets
+      value:
+      - name: odoo-registry
+- target:
+    kind: CronJob
+  patch: |-
+    - op: add
+      path: /spec/jobTemplate/spec/template/spec/imagePullSecrets
+      value:
+      - name: odoo-registry
+- target:
+    kind: Job
+    name: odoo-init-db
+  patch: |-
+    - op: add
+      path: /metadata/annotations
+      value:
+        argocd.argoproj.io/hook: Sync
+        argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+        argocd.argoproj.io/sync-wave: "-10"
+- target:
+    group: apisix.apache.org
+    version: v2
+    kind: ApisixRoute
+    name: odoo-gateway
+  patch: |-
+    - op: add
+      path: /spec/http/0/plugins/-
+      value:
+        name: proxy-rewrite
+        enable: true
+        config:
+          headers:
+            set:
+              X-Forwarded-Host: odoo.internal
+              X-Forwarded-Proto: https
+    - op: add
+      path: /spec/http/1/plugins/-
+      value:
+        name: proxy-rewrite
+        enable: true
+        config:
+          headers:
+            set:
+              X-Forwarded-Host: odoo.internal
+              X-Forwarded-Proto: https
+    - op: add
+      path: /spec/http/2/plugins/-
+      value:
+        name: proxy-rewrite
+        enable: true
+        config:
+          headers:
+            set:
+              X-Forwarded-Host: odoo.internal
+              X-Forwarded-Proto: https
+- target:
+    group: argoproj.io
+    version: v1alpha1
+    kind: Rollout
+    name: odoo-web-rollout
+  patch: |-
+    - op: add
+      path: /spec/template/spec/topologySpreadConstraints
+      value:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: odoo
+            component: web
+- target:
+    kind: CronJob
+    name: odoo-disaster-recovery-backup
+  patch: |-
+    - op: add
+      path: /spec/suspend
+      value: true
+replacements:
+- source:
+    kind: ConfigMap
+    name: cmc-deployment-settings
+    fieldPath: data.domain
+  targets:
+  - select:
+      group: apisix.apache.org
+      version: v2
+      kind: ApisixRoute
+      name: odoo-gateway
+    fieldPaths:
+    - spec.http.0.match.hosts.0
+    - spec.http.0.plugins.1.config.headers.set.X-Forwarded-Host
+    - spec.http.1.match.hosts.0
+    - spec.http.1.plugins.1.config.headers.set.X-Forwarded-Host
+    - spec.http.2.match.hosts.0
+    - spec.http.2.plugins.1.config.headers.set.X-Forwarded-Host
+  - select:
+      group: apisix.apache.org
+      version: v2
+      kind: ApisixTls
+      name: odoo-tls
+    fieldPaths:
+    - spec.hosts.0

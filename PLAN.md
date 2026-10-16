@@ -1,3 +1,5 @@
+> **Superseded 2026-10-15:** private Dev/Prod configuration and migration now follow [cmc/MULTI-ENV.md](cmc/MULTI-ENV.md). Firewall is already operational and remains user-managed. The historical instructions below describe the previous single-namespace state.
+
 # Trạng thái triển khai Odoo CMC GitOps
 
 Cập nhật 2026-10-13: phần source đã hoàn tất theo two-repository pattern.

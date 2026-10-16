@@ -28,6 +28,21 @@ jobs:
         cache-dependency-path: requirements-tools.txt
     - name: Install validation dependencies
       run: python -m pip install -r requirements-tools.txt
+    - name: Validate GitHub Actions semantics and embedded Bash
+      shell: bash
+      run: |
+        set -euo pipefail
+        version=1.7.12
+        archive="actionlint_${version}_linux_amd64.tar.gz"
+        tool_dir="$(mktemp -d)"
+        curl --fail --silent --show-error --location --max-time 120 \
+          "https://github.com/rhysd/actionlint/releases/download/v${version}/${archive}" -o "$tool_dir/$archive"
+        curl --fail --silent --show-error --location --max-time 120 \
+          "https://github.com/rhysd/actionlint/releases/download/v${version}/actionlint_${version}_checksums.txt" -o "$tool_dir/checksums.txt"
+        (cd "$tool_dir" && grep "  $archive\$" checksums.txt | sha256sum --check --strict -)
+        tar -xzf "$tool_dir/$archive" -C "$tool_dir" actionlint
+        "$tool_dir/actionlint" -shellcheck= -pyflakes=
+        python scripts/validate_workflows.py
     - name: Validate manifests and scripts
       run: python validate.py
     - name: Run cloud boundary tests

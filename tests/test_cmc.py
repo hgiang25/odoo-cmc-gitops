@@ -155,10 +155,10 @@ class CloudTests(unittest.TestCase):
     def test_cmc_configuration_updates_only_non_secret_desired_state(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            for relative in ('overlays/cmc/kustomization.yaml',
-                             'overlays/cmc/cloud-resources.yaml',
+            for relative in ('overlays/cmc-common/kustomization.yaml',
+                             'overlays/cmc-common/cloud-resources.yaml',
                              'overlays/cmc-infrastructure/kustomization.yaml',
-                             'clusters/cmc/apisix.yaml'):
+                             'clusters/cmc/platform/apisix.yaml'):
                 target = root / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(cmc.ROOT / relative, target)
@@ -166,10 +166,12 @@ class CloudTests(unittest.TestCase):
             combined = '\n'.join(path.read_text(encoding='utf-8') for path in root.rglob('*.yaml'))
             for value in ('erp.example.vn', 'cmc-nfs-rwx', 'cmc-cinder-rwo'):
                 self.assertIn(value, combined)
-            service = yaml.safe_load((root / 'clusters/cmc/apisix.yaml').read_text(
+            service = yaml.safe_load((root / 'clusters/cmc/platform/apisix.yaml').read_text(
                 encoding='utf-8'))['spec']['source']['helm']['valuesObject']['service']
-            self.assertEqual(service['type'], 'ClusterIP')
-            self.assertEqual(service['annotations'], {})
+            self.assertEqual(service['type'], 'LoadBalancer')
+            self.assertEqual(service['annotations'], {
+                'loadbalancer.openstack.org/class': 'cmc-loadbalancer-private',
+                'loadbalancer.openstack.org/flavor-id': 'flavor-2'})
             self.assertNotIn('REPLACE_ODOO_DOMAIN', combined)
             self.assertNotIn('REPLACE_CMC_RWX_STORAGE_CLASS', combined)
             self.assertNotIn('REPLACE_CMC_BLOCK_STORAGE_CLASS', combined)
@@ -179,8 +181,15 @@ class CloudTests(unittest.TestCase):
         source = (cmc.ROOT / '.github/workflows/bootstrap-argocd.yml').read_text(
             encoding='utf-8')
         self.assertIn("vars.CMC_POSTGRES_SSLMODE || 'disable'", source)
-        self.assertIn('^(disable|require|verify-ca|verify-full)$', source)
-        self.assertNotIn('^(disable|allow|prefer|require|verify-ca|verify-full)$', source)
+        self.assertIn('python scripts/check_deploy_inputs.py', source)
+        from scripts.check_deploy_inputs import check
+        inputs = dict(KUBE_CONTEXT='cmc', CMC_POSTGRES_HOST='private-db',
+                      CMC_POSTGRES_DATABASE='odoo17_dev', CMC_POSTGRES_USER='dev',
+                      CMC_POSTGRES_PASSWORD='fixture', DOCKERHUB_USERNAME='fixture',
+                      DOCKERHUB_TOKEN='fixture')
+        for mode in ('allow', 'prefer', '', 'invalid'):
+            with self.assertRaisesRegex(ValueError, 'TLS policy'):
+                check('dev', dict(inputs, CMC_POSTGRES_SSLMODE=mode))
 
 
 if __name__ == '__main__':

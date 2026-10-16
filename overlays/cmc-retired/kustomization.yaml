@@ -1,0 +1,65 @@
+# Opt-in cutover state. Keep PVCs/namespace; stop legacy writers and remove routes.
+# Point only the legacy odoo-cmc Application here during the migration window.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../cmc
+patches:
+- target:
+    kind: Deployment
+  patch: |-
+    - op: replace
+      path: /spec/replicas
+      value: 0
+- target:
+    kind: Rollout
+  patch: |-
+    - op: replace
+      path: /spec/replicas
+      value: 0
+- target:
+    kind: ScaledObject
+  patch: |-
+    - op: add
+      path: /metadata/annotations
+      value:
+        autoscaling.keda.sh/paused-replicas: "0"
+- target:
+    kind: PersistentVolumeClaim
+  patch: |-
+    - op: add
+      path: /metadata/annotations/argocd.argoproj.io~1sync-options
+      value: Prune=false,Delete=false
+- target:
+    kind: Namespace
+  patch: |-
+    - op: add
+      path: /metadata/annotations/argocd.argoproj.io~1sync-options
+      value: Prune=false,Delete=false
+- target:
+    kind: ApisixRoute
+    name: odoo-gateway
+  patch: |-
+    apiVersion: apisix.apache.org/v2
+    kind: ApisixRoute
+    metadata:
+      name: odoo-gateway
+    $patch: delete
+- target:
+    kind: ApisixTls
+    name: odoo-tls
+  patch: |-
+    apiVersion: apisix.apache.org/v2
+    kind: ApisixTls
+    metadata:
+      name: odoo-tls
+    $patch: delete
+- target:
+    kind: Job
+    name: odoo-init-db
+  patch: |-
+    apiVersion: batch/v1
+    kind: Job
+    metadata:
+      name: odoo-init-db
+    $patch: delete

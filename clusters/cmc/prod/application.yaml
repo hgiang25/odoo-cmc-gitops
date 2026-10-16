@@ -1,21 +1,20 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: odoo-cmc
+  name: odoo-prod
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
-  finalizers:
-  - resources-finalizer.argocd.argoproj.io
+    argocd.argoproj.io/sync-wave: '0'
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
-  project: odoo-cmc
+  project: odoo-prod
   source:
     repoURL: https://github.com/hgiang25/odoo-cmc-gitops.git
     targetRevision: main
-    path: overlays/cmc
+    path: overlays/prod
   destination:
     server: https://kubernetes.default.svc
-    namespace: odoo-system
+    namespace: odoo-prod
   ignoreDifferences:
   - group: apps
     kind: Deployment
@@ -25,10 +24,20 @@ spec:
     kind: Rollout
     jsonPointers:
     - /spec/restartAt
+  - group: argoproj.io
+    kind: Rollout
+    jsonPointers:
+    - /spec/replicas
+  - group: apps
+    kind: Deployment
+    name: odoo-worker
+    jsonPointers:
+    - /spec/replicas
+  - group: apisix.apache.org
+    kind: ApisixRoute
+    jqPathExpressions:
+    - .spec.http[]?.backends[]?.weight
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
     - CreateNamespace=true
     - RespectIgnoreDifferences=true

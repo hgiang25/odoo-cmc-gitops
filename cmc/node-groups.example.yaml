@@ -1,0 +1,27 @@
+# Operator contract for CMC node-group creation; NOT a Kubernetes API resource.
+# Persist these labels/taints in each CMC group template so replacements inherit them.
+nodeGroups:
+  odoo-dev:
+    minimumNodes: 1
+    suggestedNodeSize: 4 vCPU / 8 GiB RAM or larger
+    publicIP: false
+    labels:
+      odoo.cmc/environment: dev
+    taints:
+    - key: odoo.cmc/environment
+      value: dev
+      effect: NoSchedule
+  odoo-prod:
+    minimumNodes: 2
+    recommendedNodes: 3
+    suggestedNodeSize: 4 vCPU / 16 GiB RAM or larger
+    publicIP: false
+    labels:
+      odoo.cmc/environment: prod
+    taints:
+    - key: odoo.cmc/environment
+      value: prod
+      effect: NoSchedule
+platform:
+  placement: Keep existing untainted node group for platform controllers, APISIX and etcd
+  note: Size separately; do not convert all current workers to dedicated Odoo nodes

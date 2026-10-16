@@ -61,7 +61,7 @@ def main():
                 for ver in doc['spec']['versions']:
                     schemas[(doc['spec']['group'] + '/' + ver['name'],
                              doc['spec']['names']['kind'])] = ver['schema']['openAPIV3Schema']
-        gitops_values = yaml.safe_load((cmc.ROOT / 'clusters/cmc/apisix.yaml').read_text(
+        gitops_values = yaml.safe_load((cmc.ROOT / 'clusters/cmc/platform/apisix.yaml').read_text(
             encoding='utf-8'))['spec']['source']['helm']['valuesObject']
         values.write_text(yaml.safe_dump(gitops_values), encoding='utf-8')
         committed_render = cmc.run(['helm', 'template', 'apisix', 'apisix',
@@ -70,16 +70,18 @@ def main():
                  '-f', str(values)])
         committed_services = [d for d in yaml.safe_load_all(committed_render)
                               if d and d['kind'] == 'Service']
-        assert all(d['spec'].get('type', 'ClusterIP') == 'ClusterIP'
-                   for d in committed_services), 'ELB provisioning must remain paused'
         gateway = next(d for d in committed_services if d['metadata']['name'] == 'apisix-gateway')
-        assert not gateway['spec'].get('externalTrafficPolicy')
+        assert gateway['spec']['type'] == 'ClusterIP'
+        assert all(d is gateway or d['spec'].get('type', 'ClusterIP') == 'ClusterIP'
+                   for d in committed_services), 'Only Production gateway may provision an ELB'
         assert [p['port'] for p in gateway['spec']['ports']] == [443]
-        assert not any(k.startswith('loadbalancer.openstack.org/')
-                       for k in (gateway['metadata'].get('annotations') or {}))
+        assert not gateway['metadata'].get('annotations')
         print('argo-cd 10.10.3 and committed APISIX GitOps values: Helm render passed')
     count = 0
-    for doc in artifacts['app.yaml']:
+    workload_docs = artifacts['app.yaml']
+    for overlay in ('dev', 'prod', 'cmc-retired'):
+        workload_docs += cmc.render(cmc.ROOT / 'overlays' / overlay)
+    for doc in workload_docs:
         if doc['apiVersion'].split('/')[0] in ('apisix.apache.org', 'argoproj.io', 'keda.sh'):
             jsonschema.validate(doc, schemas[(doc['apiVersion'], doc['kind'])])
             count += 1
@@ -87,10 +89,12 @@ def main():
     gitops += [yaml.safe_load((cmc.ROOT / 'bootstrap/odoo-cmc-root.yaml').read_text(
         encoding='utf-8')), yaml.safe_load((cmc.ROOT / 'bootstrap/odoo-cmc-project.yaml').read_text(
         encoding='utf-8'))]
+    gitops += [yaml.safe_load((cmc.ROOT / f'bootstrap/odoo-{env}-project.yaml').read_text(
+        encoding='utf-8')) for env in ('dev', 'prod')]
     for doc in gitops:
         jsonschema.validate(doc, schemas[(doc['apiVersion'], doc['kind'])])
         count += 1
-    print(f'Validated {count} CMC custom resources; committed gateway is HTTPS-only ClusterIP, ELB paused.')
+    print(f'Validated {count} CMC custom resources; published gateway is safe ClusterIP, Dev has no ELB.')
 
 
 if __name__ == '__main__':

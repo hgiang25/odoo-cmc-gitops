@@ -1,4 +1,4 @@
-"""CMC manifest renderer and read-only preflight for the Argo CD deployment."""
+"""Legacy odoo-system renderer/preflight. Dev/Prod use scripts/environment.py and cmc/MULTI-ENV.md."""
 import argparse
 import copy
 import json
@@ -73,9 +73,8 @@ def load_config(path, live=False):
     annotations = config['loadBalancerAnnotations']
     if not isinstance(annotations, dict) or not all(isinstance(v, str) for v in annotations.values()):
         raise ValueError('LoadBalancer annotations must be a string mapping')
-    if annotations.get('loadbalancer.openstack.org/class') not in (
-            'cmc-loadbalancer-public', 'cmc-loadbalancer-private'):
-        raise ValueError('Select a CMC public/private LoadBalancer class')
+    if annotations.get('loadbalancer.openstack.org/class') != 'cmc-loadbalancer-private':
+        raise ValueError('Only the CMC private LoadBalancer class is permitted')
     if not annotations.get('loadbalancer.openstack.org/flavor-id'):
         raise ValueError('Select a region-specific CMC ELB flavor ID')
     if live and re.search(r'replace|example\.com|your_dockerhub', yaml.safe_dump(config), re.I):

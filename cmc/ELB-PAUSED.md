@@ -1,3 +1,5 @@
+> **Superseded 2026-10-15:** private Dev/Prod configuration and migration now follow [MULTI-ENV.md](MULTI-ENV.md). Firewall is already operational and remains user-managed. The historical instructions below describe the previous single-namespace state.
+
 # ELB provisioning paused
 
 The desired topology is clients -> HA firewalls -> private ELB -> APISIX -> Odoo.

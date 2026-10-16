@@ -40,16 +40,17 @@ def check(resources, local=False, odoo_image="odoo-queue:17.0-lab"):
             assert ("AnalysisTemplate", template["templateName"]) in index
     for service in (canary["stableService"], canary["canaryService"]):
         assert index["Service", service]["spec"]["selector"] == web["spec"]["selector"]["matchLabels"]
-    route = index["ApisixRoute", canary["trafficRouting"]["apisix"]["route"]["name"]]
-    route_rules = {r["name"]: r for r in route["spec"]["http"]}
-    for rule_name in canary["trafficRouting"]["apisix"]["route"]["rules"]:
-        rule = route_rules[rule_name]
-        assert {b["serviceName"] for b in rule["backends"]} == {canary["stableService"], canary["canaryService"]}
-        assert rule["timeout"]["read"] == "600s"
-    assert route_rules["websocket"]["websocket"] is True
-    assert {b["servicePort"] for b in route_rules["websocket"]["backends"]} == {8072}
+    if "trafficRouting" in canary:
+        route = index["ApisixRoute", canary["trafficRouting"]["apisix"]["route"]["name"]]
+        route_rules = {r["name"]: r for r in route["spec"]["http"]}
+        for rule_name in canary["trafficRouting"]["apisix"]["route"]["rules"]:
+            rule = route_rules[rule_name]
+            assert {b["serviceName"] for b in rule["backends"]} == {canary["stableService"], canary["canaryService"]}
+            assert rule["timeout"]["read"] == "600s"
+        assert route_rules["websocket"]["websocket"] is True
+        assert {b["servicePort"] for b in route_rules["websocket"]["backends"]} == {8072}
     for doc in resources:
-        if doc["kind"] not in ("Deployment", "Rollout") or doc["metadata"]["name"] == "postgres":
+        if doc["kind"] not in ("Deployment", "Rollout") or doc["metadata"]["name"] in ("postgres", "odoo-dev-access"):
             continue
         pod = doc["spec"]["template"]["spec"]
         for key in ("runAsUser", "runAsGroup", "fsGroup"):
@@ -144,8 +145,12 @@ def main():
     applications = render(ROOT / "clusters/cmc")
     assert {d["metadata"]["name"] for d in applications} == {
         "odoo-cmc-infrastructure", "odoo-argo-rollouts", "odoo-keda",
-        "odoo-apisix", "odoo-cmc"}
-    assert all(d["spec"]["syncPolicy"]["automated"]["selfHeal"] for d in applications)
+        "odoo-apisix", "odoo-cmc", "odoo-dev", "odoo-prod", "odoo-environments"}
+    workload_apps = {"odoo-cmc", "odoo-dev", "odoo-prod"}
+    assert all("automated" not in d["spec"]["syncPolicy"] for d in applications
+               if d["metadata"]["name"] in workload_apps)
+    assert all(d["spec"]["syncPolicy"]["automated"]["selfHeal"] for d in applications
+               if d["metadata"]["name"] not in workload_apps)
     apisix_application = next(
         d for d in applications if d["metadata"]["name"] == "odoo-apisix")
     assert apisix_application["spec"]["ignoreDifferences"] == [{
@@ -173,6 +178,8 @@ def main():
     from cmc import artifacts, load_config
     cloud = artifacts(load_config(ROOT / 'cmc/config.example.yaml'))
     sets.extend([cloud['app.yaml'], cloud['infrastructure.yaml']])
+    from scripts.validate_environments import validate_environments
+    sets.extend(validate_environments())
     for path in ROOT.rglob("*.py"):
         if ".local" not in path.parts:
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
