@@ -173,6 +173,8 @@ jobs:
           kubectl --context "$KUBE_CONTEXT" apply -f -
         if ! kubectl --context "$KUBE_CONTEXT" -n "$ODOO_NAMESPACE" wait --for=condition=complete job/odoo-dbaas-preflight --timeout=180s; then
           kubectl --context "$KUBE_CONTEXT" -n "$ODOO_NAMESPACE" logs job/odoo-dbaas-preflight || true
+          kubectl --context "$KUBE_CONTEXT" -n "$ODOO_NAMESPACE" describe job odoo-dbaas-preflight || true
+          kubectl --context "$KUBE_CONTEXT" -n "$ODOO_NAMESPACE" get pods -l component=dbaas-preflight -o wide || true
           exit 1
         fi
         kubectl --context "$KUBE_CONTEXT" -n "$ODOO_NAMESPACE" logs job/odoo-dbaas-preflight

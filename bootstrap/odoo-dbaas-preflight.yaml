@@ -5,7 +5,7 @@ metadata:
   namespace: odoo-system
 spec:
   backoffLimit: 0
-  activeDeadlineSeconds: 150
+  activeDeadlineSeconds: 300
   template:
     metadata:
       labels:
