@@ -4,30 +4,30 @@ metadata:
   name: odoo-cmc
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: '0'
+    argocd.argoproj.io/sync-wave: "0"
     argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
   project: odoo-cmc
   source:
     repoURL: https://github.com/hgiang25/odoo-cmc-gitops.git
     targetRevision: main
-    path: overlays/cmc
+    path: overlays/cmc-retired
   destination:
     server: https://kubernetes.default.svc
     namespace: odoo-system
   ignoreDifferences:
-  - group: apps
-    kind: Deployment
-    jqPathExpressions:
-    - .spec.template.metadata.annotations."kubectl.kubernetes.io/restartedAt"
-  - group: argoproj.io
-    kind: Rollout
-    jsonPointers:
-    - /spec/restartAt
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations."kubectl.kubernetes.io/restartedAt"
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/restartAt
   syncPolicy:
     syncOptions:
-    - CreateNamespace=true
-    - RespectIgnoreDifferences=true
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
     retry:
       limit: 10
       backoff:
