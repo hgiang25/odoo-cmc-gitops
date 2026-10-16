@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cmc
 from scripts.update_images import update
 from scripts.configure_cmc import configure
+from scripts.validate_environments import validate_gateway_service
 
 
 class CloudTests(unittest.TestCase):
@@ -169,6 +170,7 @@ class CloudTests(unittest.TestCase):
             service = yaml.safe_load((root / 'clusters/cmc/platform/apisix.yaml').read_text(
                 encoding='utf-8'))['spec']['source']['helm']['valuesObject']['service']
             self.assertEqual(service['type'], 'LoadBalancer')
+            self.assertEqual(validate_gateway_service(service), 'LoadBalancer')
             self.assertEqual(service['annotations'], {
                 'loadbalancer.openstack.org/class': 'cmc-loadbalancer-private',
                 'loadbalancer.openstack.org/flavor-id': 'flavor-2'})

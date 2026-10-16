@@ -11,6 +11,7 @@ import jsonschema
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cmc
+from scripts.validate_environments import validate_gateway_service
 
 
 def main():
@@ -63,6 +64,7 @@ def main():
                              doc['spec']['names']['kind'])] = ver['schema']['openAPIV3Schema']
         gitops_values = yaml.safe_load((cmc.ROOT / 'clusters/cmc/platform/apisix.yaml').read_text(
             encoding='utf-8'))['spec']['source']['helm']['valuesObject']
+        gateway_type = validate_gateway_service(gitops_values['service'])
         values.write_text(yaml.safe_dump(gitops_values), encoding='utf-8')
         committed_render = cmc.run(['helm', 'template', 'apisix', 'apisix',
                  '--repo', 'https://apache.github.io/apisix-helm-chart', '--version', '2.10.0',
@@ -71,11 +73,14 @@ def main():
         committed_services = [d for d in yaml.safe_load_all(committed_render)
                               if d and d['kind'] == 'Service']
         gateway = next(d for d in committed_services if d['metadata']['name'] == 'apisix-gateway')
-        assert gateway['spec']['type'] == 'ClusterIP'
+        assert gateway['spec']['type'] == gateway_type
         assert all(d is gateway or d['spec'].get('type', 'ClusterIP') == 'ClusterIP'
                    for d in committed_services), 'Only Production gateway may provision an ELB'
         assert [p['port'] for p in gateway['spec']['ports']] == [443]
-        assert not gateway['metadata'].get('annotations')
+        if gateway_type == 'LoadBalancer':
+            assert gateway['metadata']['annotations'] == gitops_values['service']['annotations']
+        else:
+            assert not gateway['metadata'].get('annotations')
         print('argo-cd 10.10.3 and committed APISIX GitOps values: Helm render passed')
     count = 0
     workload_docs = artifacts['app.yaml']
@@ -94,7 +99,7 @@ def main():
     for doc in gitops:
         jsonschema.validate(doc, schemas[(doc['apiVersion'], doc['kind'])])
         count += 1
-    print(f'Validated {count} CMC custom resources; published gateway is safe ClusterIP, Dev has no ELB.')
+    print(f'Validated {count} CMC custom resources; gateway state is private-only, Dev has no ELB.')
 
 
 if __name__ == '__main__':

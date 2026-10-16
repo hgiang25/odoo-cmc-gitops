@@ -10,6 +10,26 @@ from validate import ROOT, check, render
 from scripts.environment import KEY, bootstrap_resources
 
 
+def validate_gateway_service(service):
+    """Accept only the unpublished gateway or the configured private CMC ELB."""
+    assert service['http']['enabled'] is False
+    if service['type'] == 'ClusterIP':
+        assert service['externalTrafficPolicy'] == ''
+        assert service['annotations'] == {}
+        return 'ClusterIP'
+
+    assert service['type'] == 'LoadBalancer'
+    assert service['externalTrafficPolicy'] == 'Cluster'
+    annotations = service.get('annotations', {})
+    assert set(annotations) == {
+        'loadbalancer.openstack.org/class',
+        'loadbalancer.openstack.org/flavor-id',
+    }
+    assert annotations['loadbalancer.openstack.org/class'] == 'cmc-loadbalancer-private'
+    assert annotations['loadbalancer.openstack.org/flavor-id']
+    return 'LoadBalancer'
+
+
 def pod_spec(doc):
     if doc['kind'] in ('Deployment', 'Rollout', 'Job', 'StatefulSet'):
         return doc['spec']['template']['spec']
@@ -101,9 +121,7 @@ def validate_environments():
         assert 'automated' not in apps[name]['spec']['syncPolicy']
         assert 'finalizers' not in apps[name]['metadata']
     service = apps['odoo-apisix']['spec']['source']['helm']['valuesObject']['service']
-    assert service['type'] == 'ClusterIP'
-    assert service['externalTrafficPolicy'] == '' and service['annotations'] == {}
-    assert service['http']['enabled'] is False
+    validate_gateway_service(service)
     retired = render(ROOT / 'overlays/cmc-retired')
     for doc in retired:
         assert doc['kind'] not in ('ApisixRoute', 'ApisixTls', 'Job')

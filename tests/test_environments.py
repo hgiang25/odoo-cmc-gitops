@@ -11,7 +11,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from validate import ROOT, render
 from scripts.environment import eligible_nodes, bootstrap_resources, KEY
-from scripts.validate_environments import validate_environment, validate_environments
+from scripts.validate_environments import (validate_environment, validate_environments,
+                                           validate_gateway_service)
 from scripts.promote_environment import promote
 from scripts.update_images import update
 from scripts.verify_private_elb import verify
@@ -81,6 +82,33 @@ class EnvironmentTests(unittest.TestCase):
             path=Path(folder)/'config.yaml'; path.write_text(yaml.safe_dump(config))
             with self.assertRaisesRegex(ValueError, 'private'):
                 cmc.load_config(path)
+
+    def test_gitops_gateway_allows_only_safe_or_private_configured_state(self):
+        safe = {'type': 'ClusterIP', 'externalTrafficPolicy': '', 'annotations': {},
+                'http': {'enabled': False}}
+        self.assertEqual(validate_gateway_service(safe), 'ClusterIP')
+
+        private = copy.deepcopy(safe)
+        private.update({
+            'type': 'LoadBalancer',
+            'externalTrafficPolicy': 'Cluster',
+            'annotations': {
+                'loadbalancer.openstack.org/class': 'cmc-loadbalancer-private',
+                'loadbalancer.openstack.org/flavor-id': 'flavor-2',
+            },
+        })
+        self.assertEqual(validate_gateway_service(private), 'LoadBalancer')
+
+        for mutation in ('public', 'missing-flavor', 'extra-annotation'):
+            invalid = copy.deepcopy(private)
+            if mutation == 'public':
+                invalid['annotations']['loadbalancer.openstack.org/class'] = 'cmc-loadbalancer-public'
+            elif mutation == 'missing-flavor':
+                invalid['annotations']['loadbalancer.openstack.org/flavor-id'] = ''
+            else:
+                invalid['annotations']['service.beta.kubernetes.io/openstack-internal-load-balancer'] = 'false'
+            with self.assertRaises(AssertionError, msg=mutation):
+                validate_gateway_service(invalid)
 
     def test_runtime_elb_fails_on_public_pending_or_extra_service(self):
         gateway={'metadata':{'name':'apisix-gateway','namespace':'apisix','annotations':{'loadbalancer.openstack.org/class':'cmc-loadbalancer-private'}},'spec':{'type':'LoadBalancer','ports':[{'port':443}]},'status':{'loadBalancer':{'ingress':[{'ip':'10.0.1.20'}]}}}
