@@ -8,7 +8,7 @@ resources:
 images:
 - name: odoo-queue
   newName: docker.io/hgyang25/odoo-queue
-  newTag: sha-2e1106d116e6e491a36c4c80ffb570ae28e662cb
+  newTag: sha-df39593055263535e85a26d6ff3d2d3aaf7f8a32
 - name: odoo-backup
   newName: docker.io/hgyang25/odoo-backup
   newTag: sha-2e1106d116e6e491a36c4c80ffb570ae28e662cb
