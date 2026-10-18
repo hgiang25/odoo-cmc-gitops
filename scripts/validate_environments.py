@@ -117,8 +117,11 @@ def validate_environments():
         project = yaml.safe_load((ROOT/f'bootstrap/odoo-{env}-project.yaml').read_text(encoding='utf-8'))
         assert project['spec']['destinations'] == [spec['destination']]
         assert project['spec']['clusterResourceWhitelist'] == []
-    for name in ('odoo-cmc', 'odoo-dev', 'odoo-prod'):
+    assert apps['odoo-dev']['spec']['syncPolicy']['automated'] == {
+        'prune': True, 'selfHeal': True, 'allowEmpty': False}
+    for name in ('odoo-cmc', 'odoo-prod'):
         assert 'automated' not in apps[name]['spec']['syncPolicy']
+    for name in ('odoo-cmc', 'odoo-dev', 'odoo-prod'):
         assert 'finalizers' not in apps[name]['metadata']
     service = apps['odoo-apisix']['spec']['source']['helm']['valuesObject']['service']
     validate_gateway_service(service)

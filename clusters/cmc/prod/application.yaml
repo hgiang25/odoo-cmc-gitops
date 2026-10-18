@@ -3,10 +3,19 @@ kind: Application
 metadata:
   name: odoo-prod
   namespace: argocd
+  labels:
+    odoo.cmc/environment: prod
   annotations:
     argocd.argoproj.io/sync-wave: '0'
     argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
+  info:
+  - name: Environment
+    value: 'PROD | controlled sync | isolated database and nodes'
+  - name: Access
+    value: 'HA firewall -> private ELB -> APISIX TLS -> stable/canary'
+  - name: Release policy
+    value: 'Promote tested Dev images without rebuilding; approve odoo-prod deployment in GitHub.'
   project: odoo-prod
   source:
     repoURL: https://github.com/hgiang25/odoo-cmc-gitops.git

@@ -10,7 +10,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from validate import ROOT, render
-from scripts.environment import eligible_nodes, bootstrap_resources, KEY
+from scripts.environment import eligible_nodes, bootstrap_resources, KEY, placement, audit_pods
 from scripts.validate_environments import (validate_environment, validate_environments,
                                            validate_gateway_service)
 from scripts.promote_environment import promote
@@ -26,6 +26,35 @@ class EnvironmentTests(unittest.TestCase):
 
     def test_full_rendered_boundaries_and_budget(self):
         validate_environments()
+
+    def test_demo_profiles_are_distinct_without_changing_selectors(self):
+        for env, docs, limits in [('dev', self.dev, (1, 2)), ('prod', self.prod, (2, 8))]:
+            for doc in docs:
+                self.assertEqual(doc['metadata']['labels'][KEY], env)
+            index = {(d['kind'], d['metadata']['name']): d for d in docs}
+            scaler = index['ScaledObject', 'odoo-web-autoscaler']['spec']
+            self.assertEqual((scaler['minReplicaCount'], scaler['maxReplicaCount']), limits)
+            rollout = index['Rollout', 'odoo-web-rollout']['spec']
+            self.assertNotIn(KEY, rollout['selector']['matchLabels'])
+            self.assertEqual('trafficRouting' in rollout['strategy']['canary'], env == 'prod')
+
+    def test_runtime_audit_checks_policy_and_assigned_node_taint(self):
+        node = {'metadata': {'name': 'dev-1', 'labels': {KEY: 'dev'}},
+                'spec': {'taints': [{'key': KEY, 'value': 'dev', 'effect': 'NoSchedule'}]}}
+        pod = {'metadata': {'name': 'web'}, 'spec': dict(placement('dev'), nodeName='dev-1'),
+               'status': {'phase': 'Running'}}
+        pod['spec']['tolerations'].append({'key': 'node.kubernetes.io/not-ready',
+                                          'operator': 'Exists', 'effect': 'NoExecute', 'tolerationSeconds': 300})
+        audit_pods([node], [pod], 'dev')
+        for mode in ('affinity', 'wildcard', 'peer', 'taint', 'node'):
+            bad_pod, bad_node = copy.deepcopy(pod), copy.deepcopy(node)
+            if mode == 'affinity': bad_pod['spec'].pop('affinity')
+            if mode == 'wildcard': bad_pod['spec']['tolerations'].append({'operator': 'Exists'})
+            if mode == 'peer': bad_node['metadata']['labels'][KEY] = 'prod'
+            if mode == 'taint': bad_node['spec']['taints'] = []
+            if mode == 'node': bad_pod['spec']['nodeName'] = 'unknown'
+            with self.assertRaises(ValueError, msg=mode):
+                audit_pods([bad_node], [bad_pod], 'dev')
 
     def test_wrong_node_affinity_and_legacy_reference_are_rejected(self):
         for mutation in ('affinity', 'reference'):

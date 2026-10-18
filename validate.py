@@ -146,7 +146,7 @@ def main():
     assert {d["metadata"]["name"] for d in applications} == {
         "odoo-cmc-infrastructure", "odoo-argo-rollouts", "odoo-keda",
         "odoo-apisix", "odoo-cmc", "odoo-dev", "odoo-prod", "odoo-environments"}
-    workload_apps = {"odoo-cmc", "odoo-dev", "odoo-prod"}
+    workload_apps = {"odoo-cmc", "odoo-prod"}
     assert all("automated" not in d["spec"]["syncPolicy"] for d in applications
                if d["metadata"]["name"] in workload_apps)
     assert all(d["spec"]["syncPolicy"]["automated"]["selfHeal"] for d in applications

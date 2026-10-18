@@ -1,5 +1,8 @@
 # Odoo Dev/Production trong private VPC
 
+Demo trực quan, so sánh chính sách Dev/Prod và audit placement:
+[DEMO-DEV-PROD.md](DEMO-DEV-PROD.md).
+
 Đây là runbook hiện hành. Firewall HA và DNS đã thuộc phạm vi người vận hành;
 các bước dưới đây không cấu hình firewall, subnet routes hay Tailscale.
 
@@ -155,8 +158,9 @@ Thứ tự cho lần deploy đầu hoặc chạy lại:
    dừng, tạo Secrets, kiểm tra RWX UID101 và DBaaS, rồi đăng ký ba AppProjects và root.
 5. Workflow yêu cầu Argo sync theo thứ tự root → namespaces → etcd/infrastructure →
    Rollouts → KEDA → APISIX → `odoo-<environment>`. Prod vẫn **không có automated sync**;
-   Dev cũng dùng explicit sync để lần publish GitOps đầu tiên không chạy workload trước
-   khi Secrets/node groups sẵn sàng. Lần bấm workflow là hành động sync có kiểm soát.
+   Dev tự sync/prune/self-heal khi Git thay đổi. Vì vậy cần bootstrap Secrets, node groups
+   và DB Dev trước khi đăng ký root (kể cả khi mục tiêu tiếp theo là Prod).
+   Workflow vẫn kiểm tra đúng revision và health; auto-sync không thay thế nghiệm thu.
 6. Chỉ báo thành công khi đúng revision Git/chart, đúng Application source/project/
    namespace, workload đã observe generation mới, actual pods đúng image và Ready,
    KEDA Ready, pod đúng node group và health HTTP/DB server pass qua entry point.

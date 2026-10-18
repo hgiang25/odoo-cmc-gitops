@@ -3,10 +3,19 @@ kind: Application
 metadata:
   name: odoo-dev
   namespace: argocd
+  labels:
+    odoo.cmc/environment: dev
   annotations:
     argocd.argoproj.io/sync-wave: '0'
     argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
+  info:
+  - name: Environment
+    value: 'DEV | automatic sync + self-heal | isolated database and nodes'
+  - name: Access
+    value: 'Bastion port-forward to odoo-dev-access:8080; no external ingress'
+  - name: Release policy
+    value: 'CI updates overlays/dev only. Verify Dev before promoting the same images to Prod.'
   project: odoo-dev
   source:
     repoURL: https://github.com/hgiang25/odoo-cmc-gitops.git
@@ -34,6 +43,10 @@ spec:
     jsonPointers:
     - /spec/replicas
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
     syncOptions:
     - CreateNamespace=true
     - RespectIgnoreDifferences=true

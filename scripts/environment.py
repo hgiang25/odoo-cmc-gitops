@@ -97,6 +97,39 @@ echo 'PostgreSQL 16, database identity, connection capacity and cross-environmen
     return resources
 
 
+def audit_pods(nodes, pods, environment):
+    """Check current placement AND future scheduling; NoSchedule does not evict pods."""
+    by_name = {n['metadata']['name']: n for n in nodes}
+    expected = placement(environment)
+    for pod in pods:
+        if pod.get('status', {}).get('phase') in ('Succeeded', 'Failed'):
+            continue
+        name = pod['metadata']['name']
+        spec = pod.get('spec', {})
+        affinity = spec.get('affinity', {}).get('nodeAffinity')
+        if affinity != expected['affinity']['nodeAffinity']:
+            raise ValueError(f'{name}: missing exact required {environment} node affinity')
+        tolerations = spec.get('tolerations', [])
+        if expected['tolerations'][0] not in tolerations:
+            raise ValueError(f'{name}: missing exact {environment} NoSchedule toleration')
+        # Kubernetes injects not-ready/unreachable NoExecute tolerations; allow those,
+        # but never a wildcard or peer-environment toleration that bypasses isolation.
+        for tolerance in tolerations:
+            if tolerance.get('key', '') in ('', KEY) and tolerance != expected['tolerations'][0]:
+                raise ValueError(f'{name}: broad or conflicting environment toleration')
+        node_name = spec.get('nodeName')
+        if not node_name:
+            print(f'{name}: Pending/unassigned; scheduling policy checked, placement not yet verified')
+            continue
+        node = by_name.get(node_name, {})
+        if node.get('metadata', {}).get('labels', {}).get(KEY) != environment:
+            raise ValueError(f'{name} runs outside its {environment} node group')
+        taint = {'key': KEY, 'value': environment, 'effect': 'NoSchedule'}
+        if taint not in node.get('spec', {}).get('taints', []):
+            raise ValueError(f'{name}: assigned node {node_name} lacks isolation taint')
+        print(f'{environment}/{name} -> {node_name}: affinity, toleration, label and taint passed')
+
+
 def check_cluster(context, environment):
     if not context or context == 'docker-desktop':
         raise ValueError('Specify an explicit CMC context')
@@ -118,13 +151,8 @@ def check_cluster(context, environment):
     ns = 'odoo-' + environment
     # Existing pods on the wrong node are not moved by NoSchedule or IgnoredDuringExecution.
     pods = get('get', 'pods', '-n', ns)['items']
-    by_name = {n['metadata']['name']: n for n in nodes}
-    for pod in pods:
-        node_name = pod.get('spec', {}).get('nodeName')
-        if node_name and pod.get('status', {}).get('phase') not in ('Succeeded', 'Failed'):
-            if by_name[node_name]['metadata'].get('labels', {}).get(KEY) != environment:
-                raise ValueError(f'{ns}/{pod["metadata"]["name"]} runs outside its node group')
-    print('Existing running pods are on the correct environment nodes.')
+    audit_pods(nodes, pods, environment)
+    print('Active pod scheduling policies and assigned environment nodes checked.')
 
 
 def main():
