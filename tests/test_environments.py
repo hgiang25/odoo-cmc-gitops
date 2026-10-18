@@ -27,6 +27,16 @@ class EnvironmentTests(unittest.TestCase):
     def test_full_rendered_boundaries_and_budget(self):
         validate_environments()
 
+    def test_rollout_ports_explicitly_declare_tcp_to_avoid_defaulting_drift(self):
+        for docs in (self.dev, self.prod):
+            rollout = next(d for d in docs if d['kind'] == 'Rollout')
+            web = next(c for c in rollout['spec']['template']['spec']['containers']
+                       if c['name'] == 'odoo-web')
+            self.assertEqual(web['ports'], [
+                {'name': 'http', 'containerPort': 8069, 'protocol': 'TCP'},
+                {'name': 'websocket', 'containerPort': 8072, 'protocol': 'TCP'},
+            ])
+
     def test_demo_profiles_are_distinct_without_changing_selectors(self):
         for env, docs, limits in [('dev', self.dev, (1, 2)), ('prod', self.prod, (2, 8))]:
             for doc in docs:
