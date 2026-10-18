@@ -94,6 +94,8 @@ Ensure-Secret 'odoo-system' 'odoo-db-connection' @{
     HOST='postgres-service';PORT='5432';DATABASE='odoo17_dev';SSLMODE='prefer'
     USER=$DbUser;PASSWORD=$DbPassword
 }
+Ensure-Secret 'odoo-system' 'odoo-partner-standard-key' @{key=(New-RandomPassword)}
+Ensure-Secret 'odoo-system' 'odoo-partner-vip-key' @{key=(New-RandomPassword)}
 Ensure-Secret 'apisix' 'apisix-admin-credentials' @{admin=(New-RandomPassword);viewer=(New-RandomPassword)}
 Invoke-Kube @('apply', '-f', (Join-Path $Root 'infrastructure/etcd.yaml'))
 Invoke-Kube @('-n','apisix','rollout','status','statefulset/apisix-etcd','--timeout=180s')
@@ -105,7 +107,7 @@ Invoke-Checked 'helm' @('upgrade','--install','keda','keda','--repo','https://ke
     '--version','2.18.0','--kube-context',$Context,'-n','keda','--create-namespace','--wait','--timeout','5m')
 Invoke-Checked 'helm' @('upgrade','--install','metrics-server','metrics-server','--repo','https://kubernetes-sigs.github.io/metrics-server',
     '--version','3.12.2','--kube-context',$Context,'-n','kube-system','--set','args[0]=--kubelet-insecure-tls','--wait','--timeout','5m')
-Invoke-Kube @('wait','--for=condition=Established','crd/apisixroutes.apisix.apache.org',
+Invoke-Kube @('wait','--for=condition=Established','crd/apisixroutes.apisix.apache.org','crd/apisixconsumers.apisix.apache.org',
     'crd/rollouts.argoproj.io','crd/scaledobjects.keda.sh','--timeout=120s')
 foreach ($File in @('base/01-secrets-and-configmap.yaml','base/02-storage.yaml','base/03-postgres.yaml')) {
     if ($File -eq 'base/02-storage.yaml') {

@@ -118,6 +118,12 @@ jobs:
             --dry-run=client -o yaml | kubectl --context "$KUBE_CONTEXT" apply -f -
         fi
         if [ "$ODOO_ENV" = prod ]; then
+        for partner_secret in odoo-partner-standard-key odoo-partner-vip-key; do
+          if ! kubectl --context "$KUBE_CONTEXT" -n "$ODOO_NAMESPACE" get secret "$partner_secret" >/dev/null 2>&1; then
+            kubectl --context "$KUBE_CONTEXT" -n "$ODOO_NAMESPACE" create secret generic "$partner_secret" \
+              --from-literal=key="$(openssl rand -base64 36)"
+          fi
+        done
         tls_dir="$(mktemp -d)"
         trap 'rm -rf "$tls_dir"' EXIT
         printf '%s' "$CMC_TLS_CERTIFICATE" > "$tls_dir/tls.crt"
