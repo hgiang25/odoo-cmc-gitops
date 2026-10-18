@@ -2,9 +2,9 @@ name: Validate Kubernetes and GitOps
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev, prod]
   push:
-    branches: [main]
+    branches: [main, dev, prod]
   workflow_dispatch:
 
 permissions:

@@ -1,5 +1,7 @@
 # Demo Dev/Prod qua Git va Argo CD
 
+Quy trinh branch/workflow hien hanh: [BRANCH-WORKFLOW.md](BRANCH-WORKFLOW.md).
+
 ## Thiet ke
 
 Tham khao [k8s-gitops](https://github.com/hgiang25/k8s-gitops): base dung chung,
@@ -13,7 +15,7 @@ moi can doc lap. Khong tao tag gia hoac rebuild rieng cho Prod de tao khac biet.
 | Thuoc tinh | Dev | Prod |
 |---|---|---|
 | Application / namespace / project | odoo-dev | odoo-prod |
-| Desired state | overlays/dev | overlays/prod |
+| Desired state | dev:overlays/dev | prod:overlays/prod |
 | Sync | auto + prune + self-heal | manual/workflow duoc duyet |
 | Web replicas (KEDA min-max) | 1-2 | 2-8 |
 | Worker replicas (KEDA min-max) | 1-1 | 1-4 |
@@ -42,9 +44,9 @@ required reviewers. YAML `environment:` tu no KHONG tao approval gate.
 1. Mo hai Application odoo-dev/odoo-prod tren Argo. Loc theo project/label environment.
 2. Trong overlays/dev/boundaries.yaml, doi ResourceQuota requests.cpu tu '8' sang '9'.
    Day la tran quota, khong doi replica hay yeu cau tai nguyen cua pod.
-3. Chay validation, review, commit/push main. Khong chay workflow Deploy `both`.
+3. Chay validation, review, commit/push nhanh dev. Khong push thay doi demo nay vao main/prod.
 4. Quan sat Dev OutOfSync -> Synced; resource quota Dev thanh 9. Prod quota van 24.
-   Hai app co the hien cung Git SHA vi cung theo doi main: SHA repo khong phai image version.
+   Hai app theo doi hai nhanh dev/prod: SHA GitOps khong phai image version.
 5. Revert commit demo qua Git, Dev tu ve 8. Khong sua cmc-common de demo thay doi rieng Dev.
 
 ## Demo 2: drift va self-heal (tuy chon, chi Dev)
@@ -65,7 +67,7 @@ Khong tao drift tren Prod, DB hoac Secret.
 1. App CI tao immutable sha image va chi cap nhat overlays/dev. Dev tu reconcile.
 2. Chay verify Dev, ghi nhan dung image tag va ket qua; xem rollout va logs.
 3. Prod van giu image cu. Hai moi truong cung tag sau promotion la binh thuong.
-4. Chay Promote tested Dev images to Production voi expected_tag da nghiem thu.
+4. Chay Promote verified Dev images to prod branch tren main voi dev_revision va expected_tag da nghiem thu.
    Workflow hien tai yeu cau ca Odoo va backup image deu co tag do; khong dien tag gia.
 5. Reviewer duyet GitHub environment odoo-prod; workflow copy image pins, khong rebuild,
    roi yeu cau Argo sync. Quan sat stable/canary/AnalysisRun tren Prod.

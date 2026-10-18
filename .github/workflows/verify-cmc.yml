@@ -1,56 +1,25 @@
 name: Verify CMC reconciliation
-permissions:
-  contents: read
-concurrency:
-  group: odoo-cmc-runtime
-  cancel-in-progress: false
-jobs:
-  verify:
-    runs-on:
-    - self-hosted
-    - Linux
-    - X64
-    timeout-minutes: 45
-    environment: odoo-${{ github.event.client_payload.environment || inputs.environment || 'dev' }}
-    env:
-      ODOO_ENV: ${{ github.event.client_payload.environment || inputs.environment || 'dev' }}
-      KUBE_CONTEXT: ${{ vars.CMC_KUBE_CONTEXT }}
-      ODOO_DOMAIN: ${{ vars.ODOO_DOMAIN }}
-      EXPECTED_TAG: ${{ github.event.client_payload.image_tag || inputs.image_tag }}
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        ref: main
-    - name: Verify deployed revision and access path
-      shell: bash
-      run: |
-        set -euo pipefail
-        venv="$RUNNER_TEMP/odoo-verify-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-        python3 -m venv "$venv"
-        "$venv/bin/python" -m pip install -r requirements-tools.txt
-        export PATH="$venv/bin:$PATH"
-        [[ "$ODOO_ENV" =~ ^(dev|prod)$ ]]
-        test -n "$KUBE_CONTEXT"
-        revision="$(git rev-parse HEAD)"
-        python scripts/reconcile.py verify --environment "$ODOO_ENV" --context "$KUBE_CONTEXT" --revision "$revision" --expected-tag "$EXPECTED_TAG"
-        python scripts/environment.py preflight --environment "$ODOO_ENV" --context "$KUBE_CONTEXT"
-        python scripts/verify_endpoint.py --environment "$ODOO_ENV" --context "$KUBE_CONTEXT" --domain "$ODOO_DOMAIN"
-    if: github.ref == 'refs/heads/main'
-'on':
+on:
   workflow_dispatch:
     inputs:
       environment:
-        description: Environment to verify
+        description: Verify the selected environment branch, without deploying
         type: choice
-        options:
-        - dev
-        - prod
+        options: [dev, prod]
         default: dev
         required: true
       image_tag:
-        description: Expected immutable image tag; leave empty to verify current desired state
-        required: false
+        description: Expected immutable image tag (optional)
         type: string
-  repository_dispatch:
-    types:
-    - verify-release
+        default: ''
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: ${{ inputs.environment }}
+      expected_tag: ${{ inputs.image_tag }}
+      verify_only: true
+    secrets: inherit

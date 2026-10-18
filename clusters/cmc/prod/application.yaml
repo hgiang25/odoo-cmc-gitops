@@ -19,7 +19,7 @@ spec:
   project: odoo-prod
   source:
     repoURL: https://github.com/hgiang25/odoo-cmc-gitops.git
-    targetRevision: main
+    targetRevision: prod
     path: overlays/prod
   destination:
     server: https://kubernetes.default.svc

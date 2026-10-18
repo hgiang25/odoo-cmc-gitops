@@ -37,6 +37,11 @@ jobs:
       with:
         ref: ${{ inputs.revision || 'main' }}
         fetch-depth: 0
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.environment }}
+        path: environment-source
+        fetch-depth: 0
     - name: Create isolated Python environment
       shell: bash
       run: |
@@ -46,6 +51,7 @@ jobs:
         "$venv/bin/python" -m pip install -r requirements-tools.txt
         echo "$venv/bin" >> "$GITHUB_PATH"
         echo "DEPLOY_REVISION=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+        echo "WORKLOAD_REVISION=$(git -C environment-source rev-parse HEAD)" >> "$GITHUB_ENV"
         echo "SECRET_STATE=$RUNNER_TEMP/odoo-secrets-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ODOO_ENV.json" >> "$GITHUB_ENV"
     - name: Verify bastion tools, context, and committed configuration
       shell: bash
@@ -59,7 +65,9 @@ jobs:
           echo 'Main advanced since this deployment was prepared. Start a new Deploy CMC run.' >&2
           exit 1
         fi
-        python scripts/check_deploy_inputs.py
+        git -C environment-source fetch origin "$ODOO_ENV"
+        test "$WORKLOAD_REVISION" = "$(git -C environment-source rev-parse "origin/$ODOO_ENV")"
+        python environment-source/scripts/check_deploy_inputs.py
         kubectl config get-contexts -o name | grep -Fx -- "$KUBE_CONTEXT"
         kubectl --context "$KUBE_CONTEXT" --request-timeout=15s get --raw=/readyz
         kubectl --context "$KUBE_CONTEXT" get storageclass "$CMC_RWX_STORAGE_CLASS"
@@ -219,7 +227,7 @@ jobs:
       shell: bash
       run: |
         set -euo pipefail
-        python scripts/reconcile.py sync --environment "$ODOO_ENV" --context "$KUBE_CONTEXT" --revision "$DEPLOY_REVISION"
+        python scripts/reconcile.py sync --environment "$ODOO_ENV" --context "$KUBE_CONTEXT" --revision "$WORKLOAD_REVISION" --platform-revision "$DEPLOY_REVISION"
     - name: Restart existing Odoo workloads after runtime Secret reconciliation
       shell: bash
       run: |
@@ -242,11 +250,11 @@ jobs:
       shell: bash
       run: |
         set -euo pipefail
-        python scripts/reconcile.py verify --environment "$ODOO_ENV" --context "$KUBE_CONTEXT" --revision "$DEPLOY_REVISION" --expected-tag "$EXPECTED_TAG"
+        python scripts/reconcile.py verify --environment "$ODOO_ENV" --context "$KUBE_CONTEXT" --revision "$WORKLOAD_REVISION" --platform-revision "$DEPLOY_REVISION" --workload-root environment-source --expected-tag "$EXPECTED_TAG"
         python scripts/environment.py preflight --environment "$ODOO_ENV" --context "$KUBE_CONTEXT"
         python scripts/verify_endpoint.py --environment "$ODOO_ENV" --context "$KUBE_CONTEXT" --domain "$ODOO_DOMAIN"
         python scripts/runtime_secrets.py accept --environment "$ODOO_ENV" --context "$KUBE_CONTEXT" --state "$SECRET_STATE"
-        printf 'Deployed %s at GitOps commit %s\n' "$ODOO_ENV" "$DEPLOY_REVISION" >> "$GITHUB_STEP_SUMMARY"
+        printf 'Deployed %s at workload %s; platform %s\n' "$ODOO_ENV" "$WORKLOAD_REVISION" "$DEPLOY_REVISION" >> "$GITHUB_STEP_SUMMARY"
     if: github.ref == 'refs/heads/main'
 'on':
   workflow_dispatch:

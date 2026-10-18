@@ -1,0 +1,12 @@
+name: Deploy Prod (prod branch only, approval required)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  prod:
+    if: github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/main'
+    uses: hgiang25/odoo-cmc-gitops/.github/workflows/deploy-environment.yml@main
+    with:
+      environment: prod
+    secrets: inherit

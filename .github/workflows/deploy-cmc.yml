@@ -1,45 +1,19 @@
-name: Deploy CMC environments
-'on':
+name: Bootstrap CMC environment (first install or secret rotation)
+on:
   workflow_dispatch:
     inputs:
       environment:
-        description: Deploy committed image pins; both runs Dev then Prod
+        description: Bootstrap one environment; daily releases use Deploy Dev/Prod
         type: choice
-        options:
-        - dev
-        - prod
-        - both
+        options: [dev, prod]
         default: dev
         required: true
-  repository_dispatch:
-    types: [deploy-dev-release]
 permissions:
-  contents: write
-concurrency:
-  group: odoo-cmc-deploy
-  cancel-in-progress: false
+  contents: read
 jobs:
-  configure:
+  bootstrap:
     if: github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/configure-cmc.yml
-    secrets: inherit
-  dev:
-    needs: configure
-    if: github.event_name == 'repository_dispatch' || inputs.environment == 'dev' || inputs.environment == 'both'
     uses: ./.github/workflows/bootstrap-argocd.yml
     with:
-      environment: dev
-      revision: ${{ needs.configure.outputs.revision }}
-      expected_tag: ${{ github.event.client_payload.image_tag || '' }}
-    secrets: inherit
-  prod:
-    needs:
-    - configure
-    - dev
-    if: always() && !cancelled() && github.event_name == 'workflow_dispatch' && needs.configure.result == 'success' && (inputs.environment == 'prod' || (inputs.environment
-      == 'both' && needs.dev.result == 'success'))
-    uses: ./.github/workflows/bootstrap-argocd.yml
-    with:
-      environment: prod
-      revision: ${{ needs.configure.outputs.revision }}
+      environment: ${{ inputs.environment }}
     secrets: inherit

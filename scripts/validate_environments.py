@@ -113,6 +113,7 @@ def validate_environments():
     for env in ('dev', 'prod'):
         spec = apps['odoo-'+env]['spec']
         assert spec['source']['path'] == 'overlays/'+env
+        assert spec['source']['targetRevision'] == env
         assert spec['destination'] == {'server': 'https://kubernetes.default.svc', 'namespace': 'odoo-'+env}
         project = yaml.safe_load((ROOT/f'bootstrap/odoo-{env}-project.yaml').read_text(encoding='utf-8'))
         assert project['spec']['destinations'] == [spec['destination']]

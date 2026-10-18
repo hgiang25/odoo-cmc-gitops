@@ -132,13 +132,22 @@ class Cluster:
             return application_ready(current, revision)
         self.wait(f'{name} Synced/Healthy revision {revision}', finished)
 
-    def reconcile(self, environment, revision):
+    def reconcile(self, environment, revision, platform_revision=None, workload_only=False):
         self.legacy_guard()
-        self.sync('odoo-cmc-root', revision)
+        if workload_only:
+            desired = self.applications()['odoo-' + environment]['spec']
+            live = self.get('application', 'odoo-' + environment, 'argocd')['spec']
+            if any(live[key] != desired[key] for key in ('project', 'source', 'destination')):
+                raise ValueError('Application wiring differs; reconcile the main root before deploying')
+            self.sync('odoo-' + environment, revision)
+            return
+        platform_revision = platform_revision or revision
+        self.sync('odoo-cmc-root', platform_revision)
         apps = self.applications()
         for name in (*PLATFORM, 'odoo-' + environment):
             source = apps[name]['spec']['source']
-            expected = source['targetRevision'] if 'chart' in source else revision
+            expected = (source['targetRevision'] if 'chart' in source else
+                        revision if name == 'odoo-' + environment else platform_revision)
             self.sync(name, expected)
 
     @staticmethod
@@ -150,11 +159,12 @@ class Cluster:
                 apps[doc['metadata']['name']] = doc
         return apps
 
-    def verify(self, environment, revision, expected_tag=None):
+    def verify(self, environment, revision, expected_tag=None, platform_revision=None, workload_root=ROOT):
         ns = 'odoo-' + environment
         for name in (*PLATFORM, ns):
             desired = self.applications()[name]['spec']
-            expected = desired['source']['targetRevision'] if 'chart' in desired['source'] else revision
+            expected = (desired['source']['targetRevision'] if 'chart' in desired['source'] else
+                        revision if name == ns else (platform_revision or revision))
 
             def accepted(n=name, d=desired, r=expected):
                 app = self.get('application', n, 'argocd')
@@ -162,7 +172,7 @@ class Cluster:
                     raise ValueError(f'{n}: live Application wiring differs from committed environment')
                 return application_ready(app, r)
             self.wait(f'{name} accepted source and revision {expected}', accepted)
-        overlay = yaml.safe_load((ROOT/f'overlays/{environment}/kustomization.yaml').read_text(encoding='utf-8'))
+        overlay = yaml.safe_load((Path(workload_root)/f'overlays/{environment}/kustomization.yaml').read_text(encoding='utf-8'))
         mapping = next(i for i in overlay['images'] if i['name'] == 'odoo-queue')
         if expected_tag and mapping['newTag'] != expected_tag:
             raise ValueError('Expected release tag differs from the checked-out desired state')
@@ -194,6 +204,9 @@ def main():
     parser.add_argument('--environment', choices=('dev', 'prod'), required=True)
     parser.add_argument('--revision')
     parser.add_argument('--expected-tag')
+    parser.add_argument('--platform-revision')
+    parser.add_argument('--workload-root', type=Path, default=ROOT)
+    parser.add_argument('--workload-only', action='store_true')
     parser.add_argument('--timeout', type=int, default=1800)
     args = parser.parse_args()
     cluster = Cluster(args.context, args.timeout)
@@ -203,9 +216,10 @@ def main():
     if not args.revision or len(args.revision) != 40 or any(c not in '0123456789abcdef' for c in args.revision):
         raise ValueError('Expected full Git SHA is required')
     if args.action == 'sync':
-        cluster.reconcile(args.environment, args.revision)
+        cluster.reconcile(args.environment, args.revision, args.platform_revision, args.workload_only)
     else:
-        cluster.verify(args.environment, args.revision, args.expected_tag)
+        cluster.verify(args.environment, args.revision, args.expected_tag,
+                       args.platform_revision, args.workload_root)
 
 
 if __name__ == '__main__':

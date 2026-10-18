@@ -5,6 +5,8 @@
 - Workflow thường ngày không được `kubectl apply` workload. Chỉ workflow bootstrap
   thủ công được cài Argo CD, tạo runtime Secrets và apply AppProject/root Application.
 - Mọi release image dùng tag `sha-<git-sha>`. App CI chỉ cập nhật `overlays/dev`;
+  nhánh GitOps `dev` phục vụ Dev, `prod` phục vụ Prod, `main` quản lý platform.
+  Daily deploy không chạy bootstrap. Xem `cmc/BRANCH-WORKFLOW.md`.
   promotion Prod copy image đã kiểm thử sang `overlays/prod`, không rebuild.
   `overlays/cmc` là legacy migration; `overlays/cmc-common` không chứa image pins.
 - CMC dùng PostgreSQL DBaaS 16 qua Secret `odoo-db-connection` do bootstrap quản lý.

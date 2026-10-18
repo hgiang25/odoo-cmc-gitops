@@ -7,10 +7,10 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def promote(expected_tag, root=ROOT):
+def promote(expected_tag, root=ROOT, source_root=None):
     if not re.fullmatch(r'sha-[0-9a-f]{12,40}', expected_tag):
         raise ValueError('Expected immutable sha- tag is required')
-    source = yaml.safe_load((root / 'overlays/dev/kustomization.yaml').read_text(encoding='utf-8'))
+    source = yaml.safe_load((Path(source_root or root) / 'overlays/dev/kustomization.yaml').read_text(encoding='utf-8'))
     target = root / 'overlays/prod/kustomization.yaml'
     document = yaml.safe_load(target.read_text(encoding='utf-8'))
     images = source['images']
@@ -25,4 +25,7 @@ def promote(expected_tag, root=ROOT):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--expected-tag', required=True)
-    promote(parser.parse_args().expected_tag)
+    parser.add_argument('--source-root', type=Path)
+    parser.add_argument('--target-root', type=Path, default=ROOT)
+    args = parser.parse_args()
+    promote(args.expected_tag, args.target_root, args.source_root)

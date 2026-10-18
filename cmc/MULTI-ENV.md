@@ -1,5 +1,9 @@
 # Odoo Dev/Production trong private VPC
 
+**Luồng branch/workflow hiện hành:** [BRANCH-WORKFLOW.md](BRANCH-WORKFLOW.md).
+Dev/Prod nay đọc nhánh tương ứng, platform đọc main. Không còn deploy `both`;
+phần hướng dẫn triển khai lịch sử dưới đây cần đối chiếu bảng workflow mới.
+
 Demo trực quan, so sánh chính sách Dev/Prod và audit placement:
 [DEMO-DEV-PROD.md](DEMO-DEV-PROD.md).
 

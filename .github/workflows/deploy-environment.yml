@@ -1,0 +1,95 @@
+name: Reconcile one environment (reusable)
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      revision:
+        type: string
+        default: ''
+      expected_tag:
+        type: string
+        default: ''
+      verify_only:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: odoo-cmc-runtime
+  cancel-in-progress: false
+jobs:
+  reconcile:
+    runs-on: [self-hosted, Linux, X64]
+    environment: odoo-${{ inputs.environment }}
+    timeout-minutes: 60
+    env:
+      ODOO_ENV: ${{ inputs.environment }}
+      KUBE_CONTEXT: ${{ vars.CMC_KUBE_CONTEXT }}
+      ODOO_DOMAIN: ${{ vars.ODOO_DOMAIN }}
+      EXPECTED_TAG: ${{ inputs.expected_tag }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: main
+        path: platform
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.revision || inputs.environment }}
+        path: workload
+        fetch-depth: 0
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.environment == 'dev' && 'prod' || 'dev' }}
+        path: peer
+    - name: Validate branch identity and pin both revisions
+      shell: bash
+      run: |
+        set -euo pipefail
+        [[ "$ODOO_ENV" =~ ^(dev|prod)$ ]]
+        test -n "$KUBE_CONTEXT"
+        git -C workload fetch origin "$ODOO_ENV"
+        revision="$(git -C workload rev-parse HEAD)"
+        test "$revision" = "$(git -C workload rev-parse "origin/$ODOO_ENV")" || {
+          echo 'Environment branch advanced or wrong branch selected; start a new run.' >&2; exit 1;
+        }
+        echo "DEPLOY_REVISION=$revision" >> "$GITHUB_ENV"
+        echo "PLATFORM_REVISION=$(git -C platform rev-parse HEAD)" >> "$GITHUB_ENV"
+        venv="$RUNNER_TEMP/odoo-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$ODOO_ENV"
+        python3 -m venv "$venv"
+        "$venv/bin/python" -m pip install -r platform/requirements-tools.txt
+        echo "$venv/bin" >> "$GITHUB_PATH"
+    - name: Validate desired state and node isolation
+      shell: bash
+      run: |
+        set -euo pipefail
+        python workload/validate.py
+        python - <<'PY'
+        import os, pathlib, yaml
+        env = os.environ['ODOO_ENV']
+        expected = os.environ['EXPECTED_TAG']
+        images = yaml.safe_load(pathlib.Path(f'workload/overlays/{env}/kustomization.yaml').read_text())['images']
+        if expected and any(image['newTag'] != expected for image in images):
+            raise SystemExit('Image pins do not match the requested release; refusing sync')
+        PY
+        if [ "$ODOO_ENV" = dev ]; then
+          python platform/scripts/validate_branch_pair.py --dev-root workload --prod-root peer
+        else
+          python platform/scripts/validate_branch_pair.py --dev-root peer --prod-root workload
+        fi
+        python platform/scripts/environment.py preflight --environment "$ODOO_ENV" --context "$KUBE_CONTEXT"
+        python platform/scripts/reconcile.py legacy-guard --environment "$ODOO_ENV" --context "$KUBE_CONTEXT"
+    - name: Request Argo sync for this environment only
+      if: inputs.verify_only == false
+      shell: bash
+      run: |
+        set -euo pipefail
+        python platform/scripts/reconcile.py sync --workload-only --environment "$ODOO_ENV" --context "$KUBE_CONTEXT" --revision "$DEPLOY_REVISION"
+    - name: Verify branch revision, pods and access path
+      shell: bash
+      run: |
+        set -euo pipefail
+        python platform/scripts/reconcile.py verify --environment "$ODOO_ENV" --context "$KUBE_CONTEXT" --revision "$DEPLOY_REVISION" --platform-revision "$PLATFORM_REVISION" --workload-root workload --expected-tag "$EXPECTED_TAG"
+        python platform/scripts/verify_endpoint.py --environment "$ODOO_ENV" --context "$KUBE_CONTEXT" --domain "$ODOO_DOMAIN"
+        printf 'Environment: %s; branch revision: %s; platform revision: %s\n' "$ODOO_ENV" "$DEPLOY_REVISION" "$PLATFORM_REVISION" >> "$GITHUB_STEP_SUMMARY"

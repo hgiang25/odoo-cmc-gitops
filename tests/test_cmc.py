@@ -183,7 +183,7 @@ class CloudTests(unittest.TestCase):
         source = (cmc.ROOT / '.github/workflows/bootstrap-argocd.yml').read_text(
             encoding='utf-8')
         self.assertIn("vars.CMC_POSTGRES_SSLMODE || 'disable'", source)
-        self.assertIn('python scripts/check_deploy_inputs.py', source)
+        self.assertIn('python environment-source/scripts/check_deploy_inputs.py', source)
         from scripts.check_deploy_inputs import check
         inputs = dict(KUBE_CONTEXT='cmc', CMC_POSTGRES_HOST='private-db',
                       CMC_POSTGRES_DATABASE='odoo17_dev', CMC_POSTGRES_USER='dev',

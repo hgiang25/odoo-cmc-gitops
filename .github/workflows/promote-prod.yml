@@ -1,61 +1,88 @@
-name: Promote tested Dev images to Production
+name: Promote verified Dev images to prod branch
+on:
+  workflow_dispatch:
+    inputs:
+      dev_revision:
+        description: Full GitOps dev commit SHA to verify and promote
+        type: string
+        required: true
+      expected_tag:
+        description: Immutable sha- tag of BOTH images on that Dev revision
+        type: string
+        required: true
 permissions:
   contents: write
 jobs:
+  verify-dev:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      environment: dev
+      revision: ${{ inputs.dev_revision }}
+      expected_tag: ${{ inputs.expected_tag }}
+      verify_only: true
+    secrets: inherit
   promote:
+    needs: verify-dev
     runs-on: ubuntu-latest
     environment: odoo-prod
+    concurrency:
+      group: odoo-cmc-git-write-prod
+      cancel-in-progress: false
+    outputs:
+      revision: ${{ steps.commit.outputs.revision }}
     steps:
     - uses: actions/checkout@v4
       with:
         ref: main
+        path: tools
+    - uses: actions/checkout@v4
+      with:
+        ref: prod
+        path: target
         fetch-depth: 0
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.dev_revision }}
+        path: accepted-dev
     - uses: actions/setup-python@v5
       with:
         python-version: '3.12'
     - uses: azure/setup-kubectl@v4
       with:
         version: v1.32.7
-    - name: Copy accepted image pair and validate
+    - name: Copy only the accepted image pair
       env:
         EXPECTED_TAG: ${{ inputs.expected_tag }}
+        DEV_REVISION: ${{ inputs.dev_revision }}
       run: |
         set -euo pipefail
-        python -m pip install -r requirements-tools.txt
-        python scripts/promote_environment.py --expected-tag "$EXPECTED_TAG"
-        python validate.py
-        python -m unittest discover -s tests -v
+        [[ "$DEV_REVISION" =~ ^[0-9a-f]{40}$ ]]
+        test "$(git -C accepted-dev rev-parse HEAD)" = "$DEV_REVISION"
+        python -m pip install -r tools/requirements-tools.txt
+        python tools/scripts/promote_environment.py --expected-tag "$EXPECTED_TAG" --source-root accepted-dev --target-root target
+        python target/validate.py
+        python tools/scripts/validate_branch_pair.py --dev-root accepted-dev --prod-root target
     - name: Commit production desired state
+      id: commit
+      working-directory: target
       env:
-        EXPECTED_TAG: ${{ inputs.expected_tag }}
+        DEV_REVISION: ${{ inputs.dev_revision }}
       run: |
         set -euo pipefail
         git config user.name 'github-actions[bot]'
         git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
         git add overlays/prod/kustomization.yaml
         if ! git diff --cached --quiet; then
-          git commit -m "chore(prod): promote tested $EXPECTED_TAG"
-          python scripts/push_gitops.py
+          git commit -m "chore(prod): promote images verified at dev@$DEV_REVISION"
+          python ../tools/scripts/push_gitops.py --branch prod
         fi
         echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      id: commit
-    if: github.ref == 'refs/heads/main'
-    concurrency:
-      group: odoo-cmc-git-write
-      cancel-in-progress: false
-    outputs:
-      revision: ${{ steps.commit.outputs.revision }}
   deploy:
     needs: promote
-    uses: ./.github/workflows/bootstrap-argocd.yml
+    uses: ./.github/workflows/deploy-environment.yml
     with:
       environment: prod
       revision: ${{ needs.promote.outputs.revision }}
+      expected_tag: ${{ inputs.expected_tag }}
     secrets: inherit
-'on':
-  workflow_dispatch:
-    inputs:
-      expected_tag:
-        description: Exact sha- tag already accepted on Dev
-        type: string
-        required: true
