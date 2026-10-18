@@ -82,7 +82,7 @@ def validate_environment(resources, environment):
     assert config['options']['dbfilter'] == '^odoo17_' + environment + '$'
     assert index['ConfigMap', 'odoo-runtime-settings']['data']['s3_prefix'] == f'odoo/{environment}/backups'
     if environment == 'dev':
-        assert not any(d['kind'] in ('ApisixRoute', 'ApisixTls', 'Ingress') for d in resources)
+        assert not any(d['kind'] in ('ApisixRoute', 'ApisixTls', 'ApisixConsumer', 'Ingress') for d in resources)
         assert 'trafficRouting' not in rollout['spec']['strategy']['canary']
         assert ('NetworkPolicy', 'odoo-web-from-gateway') not in index
         nginx = index['ConfigMap', 'odoo-dev-access']['data']['nginx.conf']
@@ -92,6 +92,8 @@ def validate_environment(resources, environment):
             assert not {'secrets', 'pods/exec', 'nodes', '*'}.intersection(rule['resources'])
     else:
         assert index['ApisixTls', 'odoo-tls']['spec']['secret']['namespace'] == ns
+        assert ('ApisixConsumer', 'partner-standard') in index
+        assert ('ApisixConsumer', 'partner-vip') in index
         assert rollout['spec']['replicas'] >= 2
     for kind in ('nfs', 'db', 'restore'):
         for doc in bootstrap_resources(environment, kind):
@@ -128,7 +130,7 @@ def validate_environments():
     validate_gateway_service(service)
     retired = render(ROOT / 'overlays/cmc-retired')
     for doc in retired:
-        assert doc['kind'] not in ('ApisixRoute', 'ApisixTls', 'Job')
+        assert doc['kind'] not in ('ApisixRoute', 'ApisixTls', 'ApisixConsumer', 'Job')
         if doc['kind'] in ('Deployment', 'Rollout'):
             assert doc['spec']['replicas'] == 0
         if doc['kind'] == 'ScaledObject':

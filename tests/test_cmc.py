@@ -74,6 +74,33 @@ class CloudTests(unittest.TestCase):
         namespace = analysis_policy['spec']['ingress'][0]['from'][0]['namespaceSelector']
         self.assertEqual(namespace['matchLabels']['kubernetes.io/metadata.name'], 'argo-rollouts')
 
+    def test_api_shield_consumers_rate_limiting_and_circuit_breaker(self):
+        consumers = {d['metadata']['name']: d for d in self.docs['app.yaml']
+                     if d['kind'] == 'ApisixConsumer'}
+        self.assertEqual(set(consumers), {'partner-standard', 'partner-vip'})
+        self.assertEqual(consumers['partner-standard']['spec']['authParameter']['keyAuth']['secretRef']['name'],
+                         'odoo-partner-standard-key')
+        self.assertEqual(consumers['partner-vip']['spec']['authParameter']['keyAuth']['secretRef']['name'],
+                         'odoo-partner-vip-key')
+        route = next(d for d in self.docs['app.yaml']
+                     if d['kind'] == 'ApisixRoute' and d['metadata']['name'] == 'odoo-gateway')
+        rules = {r['name']: r for r in route['spec']['http']}
+        for rule_name, expected_count, expected_whitelist in (
+            ('partner-api-standard', 50, ['partner-standard', 'partner-vip']),
+            ('partner-api-vip', 500, ['partner-vip']),
+        ):
+            rule = rules[rule_name]
+            self.assertTrue(rule['authentication']['enable'])
+            self.assertEqual(rule['authentication']['type'], 'keyAuth')
+            self.assertEqual(rule['timeout']['read'], '60s')
+            plugins = {p['name']: p for p in rule['plugins']}
+            self.assertEqual(plugins['consumer-restriction']['config']['whitelist'], expected_whitelist)
+            self.assertEqual(plugins['limit-count']['config']['count'], expected_count)
+            self.assertEqual(plugins['limit-count']['config']['time_window'], 60)
+            self.assertEqual(plugins['limit-count']['config']['rejected_code'], 429)
+            self.assertEqual(plugins['limit-conn']['config']['rejected_code'], 429)
+            self.assertEqual(plugins['api-breaker']['config']['break_response_code'], 503)
+
     def test_placeholders_rejected_before_cluster_access(self):
         with self.assertRaisesRegex(ValueError, 'placeholders'):
             cmc.load_config(cmc.ROOT / 'cmc/config.example.yaml', live=True)

@@ -49,6 +49,29 @@ def check(resources, local=False, odoo_image="odoo-queue:17.0-lab"):
             assert rule["timeout"]["read"] == "600s"
         assert route_rules["websocket"]["websocket"] is True
         assert {b["servicePort"] for b in route_rules["websocket"]["backends"]} == {8072}
+        for consumer_name, secret_name in (
+            ("partner-standard", "odoo-partner-standard-key"),
+            ("partner-vip", "odoo-partner-vip-key"),
+        ):
+            consumer = index["ApisixConsumer", consumer_name]
+            key_auth = consumer["spec"]["authParameter"]["keyAuth"]
+            assert "value" not in key_auth, "API keys must not be hardcoded in Git"
+            assert key_auth["secretRef"]["name"] == secret_name
+        protected_paths = {"/jsonrpc", "/jsonrpc/*", "/xmlrpc/2", "/xmlrpc/2/*",
+                           "/web/dataset/call_kw", "/web/dataset/call_kw/*"}
+        for rule_name, expected_limit in (("partner-api-standard", 50), ("partner-api-vip", 500)):
+            api_rule = route_rules[rule_name]
+            assert protected_paths.issubset(set(api_rule["match"]["paths"]))
+            assert api_rule["authentication"]["enable"] is True
+            assert api_rule["authentication"]["type"] == "keyAuth"
+            assert api_rule["timeout"]["read"] == "60s"
+            plugins = {p["name"]: p for p in api_rule["plugins"] if p.get("enable")}
+            assert {"consumer-restriction", "limit-count", "limit-conn", "api-breaker"}.issubset(plugins)
+            assert plugins["limit-count"]["config"]["count"] == expected_limit
+            assert plugins["limit-count"]["config"]["time_window"] == 60
+            assert plugins["limit-count"]["config"]["rejected_code"] == 429
+            assert plugins["limit-conn"]["config"]["rejected_code"] == 429
+            assert plugins["api-breaker"]["config"]["break_response_code"] == 503
     for doc in resources:
         if doc["kind"] not in ("Deployment", "Rollout") or doc["metadata"]["name"] in ("postgres", "odoo-dev-access"):
             continue
@@ -89,6 +112,14 @@ def check(resources, local=False, odoo_image="odoo-queue:17.0-lab"):
     for name in ("odoo-filestore-pvc", "odoo-backup-pvc", "odoo-restore-pvc"):
         assert index["PersistentVolumeClaim", name]["spec"]["accessModes"] == (["ReadWriteOnce"] if local else ["ReadWriteMany"])
     print(f"Validated {len(resources)} resources; connection budget including reserve: {connection_budget}/300.")
+
+def clean_schema(node):
+    if isinstance(node, dict):
+        return {k: ([] if k == "required" and v is None else clean_schema(v))
+                for k, v in node.items()}
+    if isinstance(node, list):
+        return [clean_schema(item) for item in node]
+    return node
 
 def main():
     parser = argparse.ArgumentParser()
@@ -190,7 +221,7 @@ def main():
             for crd in yaml.safe_load_all(path.read_text(encoding="utf-8")):
                 if crd and crd.get("kind") == "CustomResourceDefinition":
                     for version in crd["spec"]["versions"]:
-                        schemas[(crd["spec"]["group"] + "/" + version["name"], crd["spec"]["names"]["kind"])] = version["schema"]["openAPIV3Schema"]
+                        schemas[(crd["spec"]["group"] + "/" + version["name"], crd["spec"]["names"]["kind"])] = clean_schema(version["schema"]["openAPIV3Schema"])
         for docs in sets:
             for doc in docs:
                 if doc["apiVersion"].split("/")[0] in ("apisix.apache.org", "argoproj.io", "keda.sh"):
