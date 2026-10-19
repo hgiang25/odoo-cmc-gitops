@@ -11,7 +11,6 @@ import jsonschema
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cmc
-from validate import clean_schema
 from scripts.validate_environments import validate_gateway_service
 
 
@@ -41,7 +40,7 @@ def main():
                         f'namespace {namespace}, which AppProject does not permit')
                 if doc['kind'] == 'CustomResourceDefinition':
                     for ver in doc['spec']['versions']:
-                        schemas[(doc['spec']['group'] + '/' + ver['name'], doc['spec']['names']['kind'])] = clean_schema(ver['schema']['openAPIV3Schema'])
+                        schemas[(doc['spec']['group'] + '/' + ver['name'], doc['spec']['names']['kind'])] = ver['schema']['openAPIV3Schema']
             if name == 'apisix':
                 services = [d for d in rendered if d['kind'] == 'Service']
                 gateway = next(d for d in services if d['metadata']['name'] == 'apisix-gateway')
@@ -62,7 +61,7 @@ def main():
             if doc['kind'] == 'CustomResourceDefinition':
                 for ver in doc['spec']['versions']:
                     schemas[(doc['spec']['group'] + '/' + ver['name'],
-                             doc['spec']['names']['kind'])] = clean_schema(ver['schema']['openAPIV3Schema'])
+                             doc['spec']['names']['kind'])] = ver['schema']['openAPIV3Schema']
         gitops_values = yaml.safe_load((cmc.ROOT / 'clusters/cmc/platform/apisix.yaml').read_text(
             encoding='utf-8'))['spec']['source']['helm']['valuesObject']
         gateway_type = validate_gateway_service(gitops_values['service'])

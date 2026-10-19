@@ -37,24 +37,6 @@ patches:
       path: /metadata/annotations/argocd.argoproj.io~1sync-options
       value: Prune=false,Delete=false
 - target:
-    kind: ApisixConsumer
-    name: partner-standard
-  patch: |-
-    apiVersion: apisix.apache.org/v2
-    kind: ApisixConsumer
-    metadata:
-      name: partner-standard
-    $patch: delete
-- target:
-    kind: ApisixConsumer
-    name: partner-vip
-  patch: |-
-    apiVersion: apisix.apache.org/v2
-    kind: ApisixConsumer
-    metadata:
-      name: partner-vip
-    $patch: delete
-- target:
     kind: ApisixRoute
     name: odoo-gateway
   patch: |-
