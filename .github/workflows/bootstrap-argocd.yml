@@ -233,9 +233,14 @@ jobs:
       run: |
         set -euo pipefail
         if kubectl --context "$KUBE_CONTEXT" -n "$ODOO_NAMESPACE" get rollout odoo-web-rollout >/dev/null 2>&1; then
+          old_web_pods="$(kubectl --context "$KUBE_CONTEXT" -n "$ODOO_NAMESPACE" get pods -l app=odoo,component=web -o name)"
           restart_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           kubectl --context "$KUBE_CONTEXT" -n "$ODOO_NAMESPACE" patch rollout odoo-web-rollout \
             --type=merge --patch "{\"spec\":{\"restartAt\":\"$restart_at\"}}"
+          if [ -n "$old_web_pods" ]; then
+            kubectl --context "$KUBE_CONTEXT" -n "$ODOO_NAMESPACE" delete $old_web_pods \
+              --ignore-not-found --grace-period=5 --wait=false
+          fi
           for deployment in odoo-worker odoo-cron odoo-queue-runner; do
             kubectl --context "$KUBE_CONTEXT" -n "$ODOO_NAMESPACE" rollout restart "deployment/$deployment"
             kubectl --context "$KUBE_CONTEXT" -n "$ODOO_NAMESPACE" rollout status "deployment/$deployment" --timeout=600s
