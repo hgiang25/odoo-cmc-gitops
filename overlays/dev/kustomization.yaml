@@ -131,6 +131,10 @@ patches:
   patch: "$patch: delete\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\n\
     metadata:\n  name: odoo-web-from-gateway\n"
 - target:
+    kind: PodDisruptionBudget
+    name: odoo-web
+  patch: "- op: replace\n  path: /spec/minAvailable\n  value: 0\n"
+- target:
     kind: Rollout
     name: odoo-web-rollout
   patch: "- op: add\n  path: /spec/replicas\n  value: 1\n- op: remove\n  path: /spec/strategy/canary/trafficRouting\n\
