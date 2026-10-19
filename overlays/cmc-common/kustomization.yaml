@@ -79,11 +79,6 @@ patches:
     \        set:\n          X-Forwarded-Host: odoo.internal\n          X-Forwarded-Proto:\
     \ https\n- op: add\n  path: /spec/http/2/plugins/-\n  value:\n    name: proxy-rewrite\n\
     \    enable: true\n    config:\n      headers:\n        set:\n          X-Forwarded-Host:\
-    \ odoo.internal\n          X-Forwarded-Proto: https\n- op: add\n  path: /spec/http/3/plugins/-\n\
-    \  value:\n    name: proxy-rewrite\n    enable: true\n    config:\n      headers:\n\
-    \        set:\n          X-Forwarded-Host: odoo.internal\n          X-Forwarded-Proto:\
-    \ https\n- op: add\n  path: /spec/http/4/plugins/-\n  value:\n    name: proxy-rewrite\n\
-    \    enable: true\n    config:\n      headers:\n        set:\n          X-Forwarded-Host:\
     \ odoo.internal\n          X-Forwarded-Proto: https"
 - target:
     group: argoproj.io
@@ -113,13 +108,9 @@ replacements:
     - spec.http.0.match.hosts.0
     - spec.http.0.plugins.1.config.headers.set.X-Forwarded-Host
     - spec.http.1.match.hosts.0
-    - spec.http.1.plugins.5.config.headers.set.X-Forwarded-Host
+    - spec.http.1.plugins.1.config.headers.set.X-Forwarded-Host
     - spec.http.2.match.hosts.0
-    - spec.http.2.plugins.5.config.headers.set.X-Forwarded-Host
-    - spec.http.3.match.hosts.0
-    - spec.http.3.plugins.1.config.headers.set.X-Forwarded-Host
-    - spec.http.4.match.hosts.0
-    - spec.http.4.plugins.1.config.headers.set.X-Forwarded-Host
+    - spec.http.2.plugins.1.config.headers.set.X-Forwarded-Host
   - select:
       group: apisix.apache.org
       version: v2

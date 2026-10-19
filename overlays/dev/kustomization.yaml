@@ -116,16 +116,6 @@ patches:
   patch: "- op: add\n  path: /spec/minReplicaCount\n  value: 1\n- op: add\n  path:\
     \ /spec/maxReplicaCount\n  value: 1\n"
 - target:
-    kind: ApisixConsumer
-    name: partner-standard
-  patch: "$patch: delete\napiVersion: apisix.apache.org/v2\nkind: ApisixConsumer\n\
-    metadata:\n  name: partner-standard\n"
-- target:
-    kind: ApisixConsumer
-    name: partner-vip
-  patch: "$patch: delete\napiVersion: apisix.apache.org/v2\nkind: ApisixConsumer\n\
-    metadata:\n  name: partner-vip\n"
-- target:
     kind: ApisixRoute
     name: odoo-gateway
   patch: "$patch: delete\napiVersion: apisix.apache.org/v2\nkind: ApisixRoute\nmetadata:\n\
