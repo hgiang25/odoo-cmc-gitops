@@ -108,8 +108,8 @@ patches:
 - target:
     kind: ScaledObject
     name: odoo-web-autoscaler
-  patch: "- op: add\n  path: /spec/minReplicaCount\n  value: 1\n- op: add\n  path:\
-    \ /spec/maxReplicaCount\n  value: 2\n"
+  patch: "- op: add\n  path: /spec/minReplicaCount\n  value: 5\n- op: add\n  path:\
+    \ /spec/maxReplicaCount\n  value: 5\n"
 - target:
     kind: ScaledObject
     name: odoo-worker-autoscaler
@@ -137,7 +137,7 @@ patches:
 - target:
     kind: Rollout
     name: odoo-web-rollout
-  patch: "- op: add\n  path: /spec/replicas\n  value: 1\n- op: remove\n  path: /spec/strategy/canary/trafficRouting\n\
+  patch: "- op: add\n  path: /spec/replicas\n  value: 5\n- op: remove\n  path: /spec/strategy/canary/trafficRouting\n\
     - op: add\n  path: /spec/strategy/canary/steps\n  value:\n  - setWeight: 50\n\
     \  - analysis:\n      templates:\n      - templateName: odoo-canary-health\n \
     \ - setWeight: 100\n"
@@ -148,7 +148,7 @@ patches:
     \ = /opt/odoo-src/addons,/opt/odoo-src/odoo/addons,/usr/lib/python3/dist-packages/odoo/addons,/opt/oca/queue\n\
     \    data_dir = /var/lib/odoo\n    ; Credentials are injected from a generated\
     \ Secret.\n    db_name = odoo17_dev\n    dbfilter = ^odoo17_dev$\n    db_maxconn\
-    \ = 4\n    db_maxconn_gevent = 4\n    db_sslmode = prefer\n    proxy_mode = True\n\
+    \ = 3\n    db_maxconn_gevent = 3\n    db_sslmode = prefer\n    proxy_mode = True\n\
     \    list_db = False\n    http_interface = 0.0.0.0\n    http_port = 8069\n   \
     \ gevent_port = 8072\n    limit_time_cpu = 600\n    limit_time_real = 600\n  \
     \  limit_time_real_cron = 600\n    limit_memory_soft = 805306368\n    limit_memory_hard\
