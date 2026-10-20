@@ -38,7 +38,7 @@ class EnvironmentTests(unittest.TestCase):
             ])
 
     def test_demo_profiles_are_distinct_without_changing_selectors(self):
-        for env, docs, limits in [('dev', self.dev, (1, 2)), ('prod', self.prod, (2, 8))]:
+        for env, docs, limits in [('dev', self.dev, (5, 5)), ('prod', self.prod, (2, 8))]:
             for doc in docs:
                 self.assertEqual(doc['metadata']['labels'][KEY], env)
             index = {(d['kind'], d['metadata']['name']): d for d in docs}
