@@ -13,10 +13,10 @@ resources:
 images:
 - name: odoo-queue
   newName: docker.io/hgyang25/odoo-queue
-  newTag: sha-40fdfc98d448aef59151a387a935b328e940d4be
+  newTag: sha-3f93b4c8e502acaa452a06ade8db7ae10d8f075b
 - name: odoo-backup
   newName: docker.io/hgyang25/odoo-backup
-  newTag: sha-40fdfc98d448aef59151a387a935b328e940d4be
+  newTag: sha-3f93b4c8e502acaa452a06ade8db7ae10d8f075b
 configMapGenerator:
 - name: odoo-runtime-settings
   behavior: merge
