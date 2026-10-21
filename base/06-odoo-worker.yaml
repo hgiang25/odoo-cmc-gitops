@@ -30,7 +30,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
-      terminationGracePeriodSeconds: 660
+      terminationGracePeriodSeconds: 30
       initContainers:
         - name: render-config
           image: odoo-queue:17.0-lab
@@ -159,6 +159,7 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 5
             failureThreshold: 3
+            successThreshold: 2
           livenessProbe:
             httpGet:
               path: /web/health
