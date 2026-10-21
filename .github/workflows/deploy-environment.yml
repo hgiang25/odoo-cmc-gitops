@@ -64,7 +64,7 @@ jobs:
       shell: bash
       run: |
         set -euo pipefail
-        python workload/validate.py
+        python platform/validate.py --root workload
         python - <<'PY'
         import os, pathlib, yaml
         env = os.environ['ODOO_ENV']

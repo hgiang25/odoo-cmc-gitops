@@ -91,9 +91,12 @@ def check(resources, local=False, odoo_image="odoo-queue:17.0-lab"):
     print(f"Validated {len(resources)} resources; connection budget including reserve: {connection_budget}/300.")
 
 def main():
+    global ROOT
     parser = argparse.ArgumentParser()
     parser.add_argument("--crd-schemas", type=Path, help="Directory containing official rendered CRDs")
+    parser.add_argument("--root", type=Path, default=ROOT, help="Workload snapshot to validate")
     args = parser.parse_args()
+    ROOT = args.root.resolve()
     sets = [render(ROOT), render(ROOT / "overlays/local"), render(ROOT / "overlays/http-scaling")]
     for docs, local in zip(sets, (False, True, False)):
         check(docs, local)
@@ -179,7 +182,7 @@ def main():
     cloud = artifacts(load_config(ROOT / 'cmc/config.example.yaml'))
     sets.extend([cloud['app.yaml'], cloud['infrastructure.yaml']])
     from scripts.validate_environments import validate_environments
-    sets.extend(validate_environments())
+    sets.extend(validate_environments(ROOT))
     for path in ROOT.rglob("*.py"):
         if ".local" not in path.parts:
             ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

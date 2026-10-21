@@ -1,6 +1,7 @@
 """Validate rendered environment boundaries, scheduling, references and shared DB budget."""
 import configparser
 import math
+import re
 from pathlib import Path
 import sys
 import yaml
@@ -49,7 +50,11 @@ def validate_environment(resources, environment):
     for name in ('odoo-cron', 'odoo-queue-runner'):
         assert index['Deployment', name]['spec']['strategy']['type'] == 'Recreate'
     image = rollout['spec']['template']['spec']['containers'][0]['image']
-    assert ':sha-' in image
+    tag = image.rsplit(':', 1)[-1]
+    pattern = r'sha-[0-9a-f]{12,40}'
+    if environment == 'prod':
+        pattern += r'|v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
+    assert re.fullmatch(pattern, tag), 'Invalid environment image tag'
     check(resources, odoo_image=image)
     for doc in resources:
         pod = pod_spec(doc)
@@ -105,17 +110,17 @@ def validate_environment(resources, environment):
     return ((max_web + surge) * 3 + max_worker * 3 + 3) * config['options'].getint('db_maxconn')
 
 
-def validate_environments():
-    sets = [render(ROOT / 'overlays' / env) for env in ('dev', 'prod')]
+def validate_environments(root=ROOT):
+    sets = [render(root / 'overlays' / env) for env in ('dev', 'prod')]
     total = sum(validate_environment(docs, env) for docs, env in zip(sets, ('dev', 'prod'))) + 32
     assert total <= 300, f'Shared DB connection budget {total} exceeds 300'
-    apps = {d['metadata']['name']: d for d in render(ROOT / 'clusters/cmc')}
+    apps = {d['metadata']['name']: d for d in render(root / 'clusters/cmc')}
     for env in ('dev', 'prod'):
         spec = apps['odoo-'+env]['spec']
         assert spec['source']['path'] == 'overlays/'+env
         assert spec['source']['targetRevision'] == env
         assert spec['destination'] == {'server': 'https://kubernetes.default.svc', 'namespace': 'odoo-'+env}
-        project = yaml.safe_load((ROOT/f'bootstrap/odoo-{env}-project.yaml').read_text(encoding='utf-8'))
+        project = yaml.safe_load((root/f'bootstrap/odoo-{env}-project.yaml').read_text(encoding='utf-8'))
         assert project['spec']['destinations'] == [spec['destination']]
         assert project['spec']['clusterResourceWhitelist'] == []
     assert apps['odoo-dev']['spec']['syncPolicy']['automated'] == {
@@ -126,7 +131,7 @@ def validate_environments():
         assert 'finalizers' not in apps[name]['metadata']
     service = apps['odoo-apisix']['spec']['source']['helm']['valuesObject']['service']
     validate_gateway_service(service)
-    retired = render(ROOT / 'overlays/cmc-retired')
+    retired = render(root / 'overlays/cmc-retired')
     for doc in retired:
         assert doc['kind'] not in ('ApisixRoute', 'ApisixTls', 'Job')
         if doc['kind'] in ('Deployment', 'Rollout'):

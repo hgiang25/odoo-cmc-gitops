@@ -27,7 +27,7 @@ là phần mở rộng theo yêu cầu này, không phải khẳng định repo 
 | Bootstrap CMC environment | thủ công main, chọn dev HOẶC prod | lần đầu/rotate Secret; platform main + workload nhánh đã chọn |
 | Deploy Dev | push workload dev, dispatch CI, hoặc thủ công main/dev | chỉ sync odoo-dev và verify |
 | Deploy Prod | thủ công main/prod | chỉ sync odoo-prod và verify, GitHub environment odoo-prod |
-| Promote verified Dev images | thủ công main, nhập dev_revision + expected_tag | verify Dev -> approval -> copy image pair tới prod -> sync Prod |
+| Promote latest Dev images to prod | Run workflow on main, no inputs | Resolve Dev HEAD -> verify -> Prod approval -> publish release tags -> commit prod -> sync Prod |
 | Verify CMC reconciliation | thủ công main, chọn một môi trường | chỉ kiểm tra, không sync |
 
 Daily deploy không cài lại Argo, không ghi Secret, không apply workload bằng kubectl.
@@ -61,12 +61,27 @@ trên push, nên bảo vệ nhánh và merge PR đã pass thay vì push cấu h�
 
 1. Merge code ứng dụng vào main -> CI build hai image sha-* -> cập nhật GitOps dev.
 2. Argo Dev reconcile; Deploy Dev verify revision, pods, placement và HTTP/DB.
-3. Lấy **GitOps dev commit SHA** đã pass (khác SHA source dùng làm image tag).
-4. Chạy Promote verified Dev images từ main với dev_revision và expected_tag.
-   Workflow verify lại đúng revision Dev trước khi xin approval Prod. Nếu Dev đã tiến
-   lên revision khác, từ chối; chọn revision mới và kiểm thử lại.
-5. Chỉ cặp image được copy sang prod; cấu hình Prod không bị ghi đè bằng Dev.
-   Không tự merge dev -> prod. Promotion không chuyển schema hoặc rollback dữ liệu DB.
+3. Run **Promote latest Dev images to prod** on `main`; no SHA or image tag inputs.
+   The workflow snapshots the latest `dev` HEAD and reads both image pins from
+   `overlays/dev/kustomization.yaml`. Dev must pass verification at that revision.
+   If Dev advances before verification, rerun; after verification the accepted
+   snapshot remains pinned even if Dev subsequently changes.
+4. The first Prod version is `v1.0.0` when its current tag is `sha-*`. Subsequent
+   runs increment the current Prod patch: `v1.0.1`, `v1.0.2`, etc. Each successful
+   run allocates a new version, including when Dev images have not changed.
+5. Docker Buildx tags the same source digests without rebuilding, verifies both
+   destination digests, then updates only the Prod image pair and deploys it.
+   Prod configuration, database schema and data are not copied from Dev.
+   The commit and Actions Summary record the Dev revision, source tag and release.
+6. Configure `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` in this GitOps repository
+   or its `odoo-prod` environment, with pull/push access to both image repositories.
+   Application-repository secrets are not automatically shared with GitOps.
+7. Existing release tags with different digests cause failure, never overwrite.
+   Retrying a partial registry publication reuses matching tags. Authentication or
+   network failures are not treated as missing tags. After rolling Prod back,
+   resolve any occupied next version in Git before retrying. Concurrent Prod Git
+   changes cause push failure instead of rebasing an allocated release version.
+
 
 ## Thay đổi cấu hình dùng chung
 
@@ -87,6 +102,6 @@ hai branch vẫn dùng chung DBaaS nên không có isolation tài nguyên tuyệ
 ## Demo dễ quan sát
 
 Sửa quota trong **nhánh dev**, overlays/dev/boundaries.yaml; commit/PR vào dev.
-Argo Dev tự sync, Prod không đổi. Tạo drift quota Dev để xem self-heal theo
-[DEMO-DEV-PROD.md](DEMO-DEV-PROD.md). Khi promote, xem hai Application có source revision
-khác nhau nhưng image tag giống nhau. Không chạy bootstrap cho mỗi release.
+Argo Dev syncs independently of Prod. See [DEMO-DEV-PROD.md](DEMO-DEV-PROD.md).
+After promotion, Dev uses `sha-*` and Prod uses `vX.Y.Z`, with matching image digests.
+Do not run bootstrap for each release.

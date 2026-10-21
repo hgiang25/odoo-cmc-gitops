@@ -4,7 +4,8 @@
   context vào đây.
 - Workflow thường ngày không được `kubectl apply` workload. Chỉ workflow bootstrap
   thủ công được cài Argo CD, tạo runtime Secrets và apply AppProject/root Application.
-- Mọi release image dùng tag `sha-<git-sha>`. App CI chỉ cập nhật `overlays/dev`;
+- Dev image dùng tag `sha-<git-sha>`; Prod dùng `vMAJOR.MINOR.PATCH` cho cùng digest,
+  bắt đầu từ `v1.0.0` và tăng patch tự động. App CI chỉ cập nhật `overlays/dev`;
   nhánh GitOps `dev` phục vụ Dev, `prod` phục vụ Prod, `main` quản lý platform.
   Daily deploy không chạy bootstrap. Xem `cmc/BRANCH-WORKFLOW.md`.
   promotion Prod copy image đã kiểm thử sang `overlays/prod`, không rebuild.

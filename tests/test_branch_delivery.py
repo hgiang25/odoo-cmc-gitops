@@ -10,7 +10,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.reconcile import Cluster, PLATFORM
 from scripts.push_gitops import push
-from scripts.promote_environment import promote
+from scripts.promote_environment import promote, next_release, publish, digest
 from scripts.validate_branch_pair import validate_pair
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -73,7 +73,7 @@ class BranchTests(unittest.TestCase):
             source, target = root/'dev', root/'prod'
             for path in (source/'overlays/dev', target/'overlays/prod'):
                 path.mkdir(parents=True)
-            images = [{'name': n, 'newName': 'example/'+n, 'newTag': 'sha-'+'a'*40}
+            images = [{'name': n, 'newName': 'docker.io/example/'+n, 'newTag': 'sha-'+'a'*40}
                       for n in ('odoo-queue', 'odoo-backup')]
             (source/'overlays/dev/kustomization.yaml').write_text(yaml.safe_dump({'images': images}))
             output = target/'overlays/prod/kustomization.yaml'
@@ -82,6 +82,74 @@ class BranchTests(unittest.TestCase):
             document = yaml.safe_load(output.read_text())
             self.assertEqual(document['images'], images)
             self.assertEqual(document['namespace'], 'odoo-prod')
+            with patch('scripts.promote_environment.publish') as publish_mock:
+                promote('sha-'+'a'*40, target, source, 'v1.0.0')
+                publish_mock.assert_called_once_with(images, 'v1.0.0')
+            released = yaml.safe_load(output.read_text())
+            self.assertEqual({i['newTag'] for i in released['images']}, {'v1.0.0'})
+            self.assertEqual(released['namespace'], 'odoo-prod')
+            self.assertEqual(yaml.safe_load((source/'overlays/dev/kustomization.yaml').read_text())['images'], images)
+            before = output.read_text()
+            with patch('scripts.promote_environment.publish', side_effect=ValueError('digest mismatch')):
+                with self.assertRaises(ValueError):
+                    promote('sha-'+'a'*40, target, source, 'v1.0.1')
+            self.assertEqual(output.read_text(), before)
+
+    def test_semver_is_allowed_only_for_prod_render(self):
+        from validate import render
+        from scripts.validate_environments import validate_environment
+        for env in ('dev', 'prod'):
+            docs = render(ROOT/'overlays'/env)
+            # Substitute the rendered image tags, preserving all environment settings.
+            text = yaml.safe_dump(docs)
+            import re
+            text = re.sub(r'sha-[0-9a-f]{12,40}', 'v1.0.0', text)
+            docs = yaml.safe_load(text)
+            if env == 'prod':
+                validate_environment(docs, env)
+            else:
+                with self.assertRaises(AssertionError):
+                    validate_environment(docs, env)
+
+    def test_release_version_allocation(self):
+        for current, expected in [('sha-'+'a'*40, 'v1.0.0'), ('v1.0.0', 'v1.0.1'),
+                                  ('v2.3.99', 'v2.3.100')]:
+            self.assertEqual(next_release([{'newTag': current}]*2), expected)
+        for tags in (['latest'], ['v01.0.0'], ['v1.0.0', 'v1.0.1']):
+            with self.assertRaises(ValueError):
+                next_release([{'newTag': tag} for tag in tags])
+
+    def test_release_copies_digest_and_resumes_partial_publication(self):
+        images = [{'newName': 'docker.io/example/'+name, 'newTag': 'sha-'+'a'*40}
+                  for name in ('odoo-queue', 'odoo-backup')]
+        with patch('scripts.promote_environment.digest', side_effect=['a', 'b', 'a', None, 'a', 'b']), patch(
+                'scripts.promote_environment.subprocess.run') as run:
+            publish(images, 'v1.0.0')
+        run.assert_called_once_with(['docker', 'buildx', 'imagetools', 'create', '--prefer-index=false',
+                                    '--tag', 'docker.io/example/odoo-backup:v1.0.0',
+                                    'docker.io/example/odoo-backup@b'], check=True)
+
+    def test_release_collision_never_publishes(self):
+        images = [{'newName': name, 'newTag': 'sha-'+'a'*40} for name in ('queue', 'backup')]
+        with patch('scripts.promote_environment.digest', side_effect=['a', 'b', None, 'other']), patch(
+                'scripts.promote_environment.subprocess.run') as run:
+            with self.assertRaises(ValueError):
+                publish(images, 'v1.0.0')
+            run.assert_not_called()
+
+    def test_registry_auth_failure_is_not_missing_tag(self):
+        import subprocess
+        result = subprocess.CompletedProcess([], 1, '', 'unauthorized')
+        with patch('scripts.promote_environment.subprocess.run', return_value=result):
+            with self.assertRaises(RuntimeError):
+                digest('example:v1.0.0', missing_ok=True)
+
+    def test_promotion_dispatch_has_no_manual_image_inputs(self):
+        workflow = yaml.safe_load((ROOT/'.github/workflows/promote-prod.yml').read_text())
+        self.assertIsNone(workflow.get('on', workflow.get(True))['workflow_dispatch'])
+        self.assertIn('resolve-dev', workflow['jobs']['verify-dev']['needs'])
+        self.assertEqual(workflow['jobs']['deploy']['with']['expected_tag'],
+                         '${{ needs.promote.outputs.tag }}')
 
     def test_cross_branch_budget_is_checked(self):
         with patch('scripts.validate_branch_pair.render', return_value=[]), patch(

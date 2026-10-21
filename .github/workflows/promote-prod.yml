@@ -1,29 +1,48 @@
-name: Promote verified Dev images to prod branch
+name: Promote latest Dev images to prod
 on:
   workflow_dispatch:
-    inputs:
-      dev_revision:
-        description: Full GitOps dev commit SHA to verify and promote
-        type: string
-        required: true
-      expected_tag:
-        description: Immutable sha- tag of BOTH images on that Dev revision
-        type: string
-        required: true
 permissions:
   contents: write
+concurrency:
+  group: odoo-cmc-promotion
+  cancel-in-progress: false
 jobs:
-  verify-dev:
+  resolve-dev:
     if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      revision: ${{ steps.resolve.outputs.revision }}
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: main
+        path: tools
+    - uses: actions/checkout@v4
+      with:
+        ref: dev
+        path: accepted-dev
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Resolve latest Dev image pair
+      id: resolve
+      run: |
+        set -euo pipefail
+        python -m pip install -r tools/requirements-tools.txt
+        echo "revision=$(git -C accepted-dev rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        echo "tag=$(python tools/scripts/promote_environment.py --resolve-dev --source-root accepted-dev)" >> "$GITHUB_OUTPUT"
+  verify-dev:
+    needs: resolve-dev
     uses: ./.github/workflows/deploy-environment.yml
     with:
       environment: dev
-      revision: ${{ inputs.dev_revision }}
-      expected_tag: ${{ inputs.expected_tag }}
+      revision: ${{ needs.resolve-dev.outputs.revision }}
+      expected_tag: ${{ needs.resolve-dev.outputs.tag }}
       verify_only: true
     secrets: inherit
   promote:
-    needs: verify-dev
+    needs: [resolve-dev, verify-dev]
     runs-on: ubuntu-latest
     environment: odoo-prod
     concurrency:
@@ -31,6 +50,7 @@ jobs:
       cancel-in-progress: false
     outputs:
       revision: ${{ steps.commit.outputs.revision }}
+      tag: ${{ steps.release.outputs.release_tag }}
     steps:
     - uses: actions/checkout@v4
       with:
@@ -43,7 +63,7 @@ jobs:
         fetch-depth: 0
     - uses: actions/checkout@v4
       with:
-        ref: ${{ inputs.dev_revision }}
+        ref: ${{ needs.resolve-dev.outputs.revision }}
         path: accepted-dev
     - uses: actions/setup-python@v5
       with:
@@ -51,38 +71,49 @@ jobs:
     - uses: azure/setup-kubectl@v4
       with:
         version: v1.32.7
-    - name: Copy only the accepted image pair
+    - uses: docker/setup-buildx-action@v3
+    - uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    - name: Publish release tags and update Prod image pair
+      id: release
       env:
-        EXPECTED_TAG: ${{ inputs.expected_tag }}
-        DEV_REVISION: ${{ inputs.dev_revision }}
+        EXPECTED_TAG: ${{ needs.resolve-dev.outputs.tag }}
+        DEV_REVISION: ${{ needs.resolve-dev.outputs.revision }}
       run: |
         set -euo pipefail
-        [[ "$DEV_REVISION" =~ ^[0-9a-f]{40}$ ]]
         test "$(git -C accepted-dev rev-parse HEAD)" = "$DEV_REVISION"
         python -m pip install -r tools/requirements-tools.txt
-        python tools/scripts/promote_environment.py --expected-tag "$EXPECTED_TAG" --source-root accepted-dev --target-root target
-        python target/validate.py
+        python tools/validate.py --root target
+        python tools/scripts/validate_branch_pair.py --dev-root accepted-dev --prod-root target
+        python tools/scripts/promote_environment.py --expected-tag "$EXPECTED_TAG" --source-root accepted-dev --target-root target --release --output "$GITHUB_OUTPUT"
+        python tools/validate.py --root target
         python tools/scripts/validate_branch_pair.py --dev-root accepted-dev --prod-root target
     - name: Commit production desired state
       id: commit
       working-directory: target
       env:
-        DEV_REVISION: ${{ inputs.dev_revision }}
+        DEV_REVISION: ${{ needs.resolve-dev.outputs.revision }}
+        SOURCE_TAG: ${{ needs.resolve-dev.outputs.tag }}
+        RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
       run: |
         set -euo pipefail
         git config user.name 'github-actions[bot]'
         git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
         git add overlays/prod/kustomization.yaml
         if ! git diff --cached --quiet; then
-          git commit -m "chore(prod): promote images verified at dev@$DEV_REVISION"
-          python ../tools/scripts/push_gitops.py --branch prod
+          git commit -m "chore(prod): release $RELEASE_TAG from $SOURCE_TAG at dev@$DEV_REVISION"
+          # Fail on concurrent branch changes; never rebase an allocated release version.
+          git push origin HEAD:prod
         fi
         echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        printf 'Prod release: %s; source image: %s; Dev revision: %s\n' "$RELEASE_TAG" "$SOURCE_TAG" "$DEV_REVISION" >> "$GITHUB_STEP_SUMMARY"
   deploy:
     needs: promote
     uses: ./.github/workflows/deploy-environment.yml
     with:
       environment: prod
       revision: ${{ needs.promote.outputs.revision }}
-      expected_tag: ${{ inputs.expected_tag }}
+      expected_tag: ${{ needs.promote.outputs.tag }}
     secrets: inherit
