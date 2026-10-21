@@ -52,7 +52,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
-      terminationGracePeriodSeconds: 660
+      terminationGracePeriodSeconds: 30
       initContainers:
         - name: render-config
           image: odoo-queue:17.0-lab
@@ -126,7 +126,23 @@ spec:
                   name: odoo-db-connection
                   key: PASSWORD
             - name: ODOO_QUEUE_JOB_CHANNELS
-              value: root:0
+              value:
+                root:0
+                # Thời gian tối đa để mở 1 kết nối mới (5 giây, quá 5s là hủy, không treo)
+            - name: PGCONNECT_TIMEOUT
+              value: "5"
+            # Bật TCP Keepalive ở tầng client
+            - name: PGKEEPALIVES
+              value: "1"
+            # Sau 10 giây không có tín hiệu thì bắt đầu thăm dò
+            - name: PGKEEPALIVES_IDLE
+              value: "10"
+            # Cứ 5 giây thăm dò 1 lần
+            - name: PGKEEPALIVES_INTERVAL
+              value: "5"
+            # Thăm dò 3 lần không thấy phản hồi là coi như socket đã chết -> Đóng ngay lập tức!
+            - name: PGKEEPALIVES_COUNT
+              value: "3"
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
