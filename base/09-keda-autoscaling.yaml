@@ -14,14 +14,14 @@ spec:
   pollingInterval: 15
   cooldownPeriod: 300
   triggers:
-  - type: cpu
-    metricType: Utilization
-    metadata:
-      value: '75'
-  - type: memory
-    metricType: Utilization
-    metadata:
-      value: '80'
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "75"
+    - type: memory
+      metricType: Utilization
+      metadata:
+        value: "80"
 ---
 apiVersion: keda.sh/v1alpha1
 kind: TriggerAuthentication
@@ -30,24 +30,24 @@ metadata:
   namespace: odoo-system
 spec:
   secretTargetRef:
-  - parameter: host
-    name: odoo-db-connection
-    key: HOST
-  - parameter: port
-    name: odoo-db-connection
-    key: PORT
-  - parameter: dbName
-    name: odoo-db-connection
-    key: DATABASE
-  - parameter: sslmode
-    name: odoo-db-connection
-    key: SSLMODE
-  - parameter: userName
-    name: odoo-db-connection
-    key: USER
-  - parameter: password
-    name: odoo-db-connection
-    key: PASSWORD
+    - parameter: host
+      name: odoo-db-connection
+      key: HOST
+    - parameter: port
+      name: odoo-db-connection
+      key: PORT
+    - parameter: dbName
+      name: odoo-db-connection
+      key: DATABASE
+    - parameter: sslmode
+      name: odoo-db-connection
+      key: SSLMODE
+    - parameter: userName
+      name: odoo-db-connection
+      key: USER
+    - parameter: password
+      name: odoo-db-connection
+      key: PASSWORD
 ---
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
@@ -66,13 +66,14 @@ spec:
     horizontalPodAutoscalerConfig:
       behavior:
         scaleDown:
-          stabilizationWindowSeconds: 600
+          stabilizationWindowSeconds: 60
   triggers:
-  - type: postgresql
-    metricType: AverageValue
-    authenticationRef:
-      name: odoo-postgresql-auth
-    metadata:
-      query: SELECT count(*) FROM queue_job WHERE state IN ('pending', 'enqueued',
-        'started')
-      targetQueryValue: '2'
+    - type: postgresql
+      metricType: AverageValue
+      authenticationRef:
+        name: odoo-postgresql-auth
+      metadata:
+        query:
+          SELECT count(*) FROM queue_job WHERE state IN ('pending', 'enqueued',
+          'started')
+        targetQueryValue: "2"

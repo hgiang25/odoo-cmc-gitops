@@ -21,22 +21,22 @@ spec:
           route:
             name: odoo-gateway
             rules:
-            - http
-            - websocket
+              - http
+              - websocket
       steps:
-      - setWeight: 20
-      - analysis:
-          templates:
-          - templateName: odoo-canary-health
-      - pause:
-          duration: 5m
-      - setWeight: 50
-      - analysis:
-          templates:
-          - templateName: odoo-canary-health
-      - pause:
-          duration: 10m
-      - setWeight: 100
+        - setWeight: 20
+        - analysis:
+            templates:
+              - templateName: odoo-canary-health
+        - pause:
+            duration: 5m
+        - setWeight: 50
+        - analysis:
+            templates:
+              - templateName: odoo-canary-health
+        - pause:
+            duration: 10m
+        - setWeight: 100
   template:
     metadata:
       labels:
@@ -52,133 +52,133 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
-      terminationGracePeriodSeconds: 660
+      terminationGracePeriodSeconds: 30
       initContainers:
-      - name: render-config
-        image: odoo-queue:17.0-lab
-        command:
-        - python3
-        - /opt/odoo-k8s/render_config.py
-        env:
-        - name: ODOO_ADMIN_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: odoo-secrets
-              key: ADMIN_PASSWORD
-        - name: ODOO_DB_SSLMODE
-          valueFrom:
-            secretKeyRef:
-              name: odoo-db-connection
-              key: SSLMODE
-        - name: ODOO_DB_NAME
-          valueFrom:
-            secretKeyRef:
-              name: odoo-db-connection
-              key: DATABASE
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
-        resources:
-          requests:
-            cpu: 50m
-            memory: 64Mi
-          limits:
-            cpu: 250m
-            memory: 128Mi
-        volumeMounts:
-        - name: config-template
-          mountPath: /config
-          readOnly: true
-        - name: runtime-config
-          mountPath: /etc/odoo
+        - name: render-config
+          image: odoo-queue:17.0-lab
+          command:
+            - python3
+            - /opt/odoo-k8s/render_config.py
+          env:
+            - name: ODOO_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-secrets
+                  key: ADMIN_PASSWORD
+            - name: ODOO_DB_SSLMODE
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-db-connection
+                  key: SSLMODE
+            - name: ODOO_DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-db-connection
+                  key: DATABASE
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          volumeMounts:
+            - name: config-template
+              mountPath: /config
+              readOnly: true
+            - name: runtime-config
+              mountPath: /etc/odoo
       containers:
-      - name: odoo-web
-        image: odoo-queue:17.0-lab
-        imagePullPolicy: IfNotPresent
-        args:
-        - odoo
-        - -c
-        - /etc/odoo/odoo.conf
-        - --load=base,web,queue_job
-        - --max-cron-threads=0
-        - --workers=2
-        env:
-        - name: HOST
-          valueFrom:
-            secretKeyRef:
-              name: odoo-db-connection
-              key: HOST
-        - name: PORT
-          valueFrom:
-            secretKeyRef:
-              name: odoo-db-connection
-              key: PORT
-        - name: USER
-          valueFrom:
-            secretKeyRef:
-              name: odoo-db-connection
-              key: USER
-        - name: PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: odoo-db-connection
-              key: PASSWORD
-        - name: ODOO_QUEUE_JOB_CHANNELS
-          value: root:0
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
-        resources:
-          requests:
-            cpu: 250m
-            memory: 1Gi
-          limits:
-            cpu: 1500m
-            memory: 2.5Gi
-        volumeMounts:
-        - name: runtime-config
-          mountPath: /etc/odoo
-          readOnly: true
-        - name: filestore-volume
-          mountPath: /var/lib/odoo
-        ports:
-        - name: http
-          containerPort: 8069
-          protocol: TCP
-        - name: websocket
-          containerPort: 8072
-          protocol: TCP
-        startupProbe:
-          httpGet:
-            path: /web/health
-            port: http
-          initialDelaySeconds: 15
-          periodSeconds: 5
-          failureThreshold: 30
-          timeoutSeconds: 5
-        readinessProbe:
-          httpGet:
-            path: /web/health?db_server_status=1
-            port: http
-          periodSeconds: 10
-          timeoutSeconds: 5
-        livenessProbe:
-          httpGet:
-            path: /web/health
-            port: http
-          periodSeconds: 15
-          timeoutSeconds: 5
-          failureThreshold: 3
+        - name: odoo-web
+          image: odoo-queue:17.0-lab
+          imagePullPolicy: IfNotPresent
+          args:
+            - odoo
+            - -c
+            - /etc/odoo/odoo.conf
+            - --load=base,web,queue_job
+            - --max-cron-threads=0
+            - --workers=2
+          env:
+            - name: HOST
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-db-connection
+                  key: HOST
+            - name: PORT
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-db-connection
+                  key: PORT
+            - name: USER
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-db-connection
+                  key: USER
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: odoo-db-connection
+                  key: PASSWORD
+            - name: ODOO_QUEUE_JOB_CHANNELS
+              value: root:0
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              cpu: 1500m
+              memory: 2.5Gi
+          volumeMounts:
+            - name: runtime-config
+              mountPath: /etc/odoo
+              readOnly: true
+            - name: filestore-volume
+              mountPath: /var/lib/odoo
+          ports:
+            - name: http
+              containerPort: 8069
+              protocol: TCP
+            - name: websocket
+              containerPort: 8072
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /web/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /web/health?db_server_status=1
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /web/health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
       volumes:
-      - name: config-template
-        configMap:
-          name: odoo-config
-      - name: runtime-config
-        emptyDir: {}
-      - name: filestore-volume
-        persistentVolumeClaim:
-          claimName: odoo-filestore-pvc
+        - name: config-template
+          configMap:
+            name: odoo-config
+        - name: runtime-config
+          emptyDir: {}
+        - name: filestore-volume
+          persistentVolumeClaim:
+            claimName: odoo-filestore-pvc
