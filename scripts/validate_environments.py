@@ -1,6 +1,7 @@
 """Validate rendered environment boundaries, scheduling, references and shared DB budget."""
 import configparser
 import math
+import re
 from pathlib import Path
 import sys
 import yaml
@@ -37,6 +38,18 @@ def pod_spec(doc):
         return doc['spec']['jobTemplate']['spec']['template']['spec']
 
 
+def validate_release_image(image, environment):
+    """Dev uses commit tags; Prod also accepts promoted release versions."""
+    tag = image.rsplit(':', 1)[-1]
+    sha_tag = re.fullmatch(r'sha-[0-9a-f]{12,40}', tag)
+    version_tag = re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', tag)
+    expected = 'sha-<12-40 hex characters>'
+    if environment == 'prod':
+        expected += ' or vMAJOR.MINOR.PATCH'
+    assert sha_tag or (environment == 'prod' and version_tag), (
+        f'{environment}: invalid release image {image!r}; expected tag {expected}')
+
+
 def validate_environment(resources, environment):
     ns = 'odoo-' + environment
     index = {(d['kind'], d['metadata']['name']): d for d in resources}
@@ -49,7 +62,7 @@ def validate_environment(resources, environment):
     for name in ('odoo-cron', 'odoo-queue-runner'):
         assert index['Deployment', name]['spec']['strategy']['type'] == 'Recreate'
     image = rollout['spec']['template']['spec']['containers'][0]['image']
-    assert ':sha-' in image
+    validate_release_image(image, environment)
     check(resources, odoo_image=image)
     for doc in resources:
         pod = pod_spec(doc)

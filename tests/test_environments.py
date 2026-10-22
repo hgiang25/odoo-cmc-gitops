@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from validate import ROOT, render
 from scripts.environment import eligible_nodes, bootstrap_resources, KEY, placement, audit_pods
 from scripts.validate_environments import (validate_environment, validate_environments,
-                                           validate_gateway_service)
+                                           validate_gateway_service, validate_release_image)
 from scripts.promote_environment import promote
 from scripts.update_images import update
 from scripts.verify_private_elb import verify
@@ -20,6 +20,19 @@ import cmc
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_release_image_tags_match_environment_policy(self):
+        for env in ('dev', 'prod'):
+            for tag in ('sha-' + 'a' * 12, 'sha-' + 'b' * 40):
+                validate_release_image('registry:5000/odoo:' + tag, env)
+            for tag in ('latest', 'sha-', 'sha-invalid', 'sha-' + 'a' * 41,
+                        'v1.0', 'v01.0.0', 'v1.0.0-extra'):
+                with self.subTest(environment=env, tag=tag):
+                    with self.assertRaisesRegex(AssertionError, env + ': invalid release image'):
+                        validate_release_image('registry:5000/odoo:' + tag, env)
+        validate_release_image('docker.io/example/odoo:v1.0.0', 'prod')
+        with self.assertRaisesRegex(AssertionError, 'dev: invalid release image'):
+            validate_release_image('docker.io/example/odoo:v1.0.0', 'dev')
+
     @classmethod
     def setUpClass(cls):
         cls.dev, cls.prod = [render(ROOT/'overlays'/env) for env in ('dev', 'prod')]
@@ -169,7 +182,11 @@ class EnvironmentTests(unittest.TestCase):
                     if doc['kind']=='Job':
                         pod=doc['spec']['template']['spec']
                         self.assertEqual(pod['tolerations'][0]['value'],env)
-                        if kind=='restore': self.assertIn(':sha-',pod['containers'][0]['image'])
+                        if kind=='restore':
+                            overlay = yaml.safe_load((ROOT/'overlays'/env/'kustomization.yaml').read_text(encoding='utf-8'))
+                            backup = next(i for i in overlay['images'] if i['name'] == 'odoo-backup')
+                            self.assertEqual(pod['containers'][0]['image'],
+                                             backup['newName'] + ':' + backup['newTag'])
                         if kind=='db':
                             command=pod['containers'][0]['command'][-1]
                             self.assertIn('has_database_privilege',command)
