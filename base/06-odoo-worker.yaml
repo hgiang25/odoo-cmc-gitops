@@ -81,7 +81,7 @@ spec:
             - /etc/odoo/odoo.conf
             - --load=base,web,queue_job
             - --max-cron-threads=0
-            - --workers=2
+            - --workers=4
           env:
             - name: HOST
               valueFrom:
